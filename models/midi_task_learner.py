@@ -12,9 +12,9 @@ class MIDITransformer(tf.keras.Model):
 		with open('data.json') as json_file: 
     		self.configs = json.load(self.config_path)
 
-		self.midi_encoder = TransformerEncoder(self.configs['encoder'])
-		self.midi_decoder = TransformerDecoder()
+		self.midi_encoder = TransformerXLEncoder(self.configs['encoder'])
+		self.midi_decoder = TransformerXLDecoder(self.configs['encoder'])
 
 	def __create_model__(self):
+		input_midi = tf.keras.layers.Input()
 		
-
