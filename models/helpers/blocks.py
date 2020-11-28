@@ -115,7 +115,6 @@ class TransformerXLEncoder(tf.keras.Model):
         input_vocab_size,
         maximum_position_encoding,
         memory_length,
-        segment_length,
         dropout_rate=0.1
     ):
         super(TransformerXLEncoder, self).__init__()
@@ -127,7 +126,6 @@ class TransformerXLEncoder(tf.keras.Model):
         self.input_vocab_size = input_vocab_size
         self.maximum_position_encoding = maximum_position_encoding
         self.memory_length = tf.constant(memory_length)
-        self.segment_length = tf.constant(segment_length)
 
         # Input Embedding Layer
         self.embedding = tf.keras.layers.Embedding(
@@ -154,8 +152,8 @@ class TransformerXLEncoder(tf.keras.Model):
     def call(self, x):
         seq_len = tf.shape(x)[1]
 
-        # adding embedding and position encoding.
-        inputx = self.embedding(x)  # (batch_size, input_seq_len, d_model)
+        # (batch_size, input_seq_len, d_model)
+        inputx = self.embedding(x)
         inputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         inputx = self.dropout(inputx, training=training)
     
@@ -169,7 +167,8 @@ class TransformerXLEncoder(tf.keras.Model):
                 training
             )
 
-        return inputx  # (batch_size, input_seq_len, d_model)
+        # (batch_size, input_seq_len, d_model)
+        return inputx
 ## -------------------------------------------------------------------
 
 
@@ -184,8 +183,7 @@ class TransformerXLDecoder(tf.keras.Model):
         target_vocab_size,
         maximum_position_encoding,
         memory_length,
-        segment_length,
-        rate=0.1
+        dropout_rate=0.1
     ):
         super(TransformerXLDecoder, self).__init__()
 
@@ -196,7 +194,6 @@ class TransformerXLDecoder(tf.keras.Model):
         self.target_vocab_size = target_vocab_size
         self.maximum_position_encoding = maximum_position_encoding
         self.memory_length = tf.constant(memory_length)
-        self.segment_length = tf.constant(segment_length)
         
         # Ouput Embedding Layer
         self.embedding = tf.keras.layers.Embedding(
@@ -224,7 +221,8 @@ class TransformerXLDecoder(tf.keras.Model):
     def call(self, x, look_ahead_mask, padding_mask, training=True):
         seq_len = tf.shape(x)[1]
 
-        outputx = self.embedding(x)  # (batch_size, input_seq_len, d_model)
+        # (batch_size, input_seq_len, d_model)
+        outputx = self.embedding(x)
         outputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         outputx = self.dropout(inputx, training=training)
     
@@ -238,5 +236,6 @@ class TransformerXLDecoder(tf.keras.Model):
                 training
             )
 
-        return outputx, attention_weights  # (batch_size, output_seq_len, d_model)
+        # (batch_size, output_seq_len, d_model)
+        return outputx, attention_weights
 ## -------------------------------------------------------------------
