@@ -1,5 +1,5 @@
 ####################################################################
-# ------------------- Helpers for building Transformers ------------
+# --------------- Utilities for building Transformers --------------
 ####################################################################
 import numpy as np
 import tensorflow as tf

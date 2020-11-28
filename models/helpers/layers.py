@@ -1,14 +1,23 @@
 ####################################################################
-# ------------------- Helpers for building Transformers ------------
+# ---------------- Layers for building Transformers ----------------
 ####################################################################
 import numpy as np
 import tensorflow as tf
+from .utils import  point_wise_feed_forward_network,
+                    scaled_dot_product_attention,
+                    create_look_ahead_mask,
+                    create_padding_mask
 ####################################################################
 
 ## -------------------------------------------------------------------
-class MultiHeadAttention(tf.keras.layers.Layer):
+## HELPERS FOR VANILLA TRANSFORMER
+## -------------------------------------------------------------------
+## Transformer paper - https://arxiv.org/abs/1706.03762
+## Code reference - https://www.tensorflow.org/tutorials/text/transformer
+## -------------------------------------------------------------------
+class MultiHeadSelfAttention(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads):
-        super(MultiHeadAttention, self).__init__()
+        super(MultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
     
@@ -61,7 +70,7 @@ class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, rate=0.1):
         super(EncoderLayer, self).__init__()
 
-        self.mha = MultiHeadAttention(d_model, num_heads)
+        self.mha = MultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -89,7 +98,7 @@ class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, rate=0.1):
         super(DecoderLayer, self).__init__()
 
-        self.mha1 = MultiHeadAttention(d_model, num_heads)
+        self.mha1 = MultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -109,8 +118,13 @@ class DecoderLayer(tf.keras.layers.Layer):
         out2 = self.layernorm2(ffn_output + out1)  # (batch_size, target_seq_len, d_model)
         return out2, attn_weights_block1
 ## -------------------------------------------------------------------
+## -------------------------------------------------------------------
 
-
+## -------------------------------------------------------------------
+## HELPERS FOR TRANSFORMER XL
+## -------------------------------------------------------------------
+## Transformer XL paper - https://arxiv.org/pdf/1901.02860.pdf
+## Code reference - https://github.com/CyberZHG/keras-transformer-xl/
 ## -------------------------------------------------------------------
 class Memory(keras.layers.Layer):
     """Positional embeddings.
@@ -427,6 +441,45 @@ class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
         }
         base_config = super(RelativePartialMultiHeadSelfAttention, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+## -------------------------------------------------------------------
+
+
+## -------------------------------------------------------------------
+class XLEncoderLayer(tf.keras.layers.Layer):
+    def __init__(self, d_model, num_heads, dff, rate=0.1):
+        super(DecoderLayer, self).__init__()
+
+        self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
+        self.ffn = point_wise_feed_forward_network(d_model, dff)
+
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+        self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.dropout2 = tf.keras.layers.Dropout(rate)
+
+    def call(self, x, training):
+        pass
+## -------------------------------------------------------------------
+
+
+## -------------------------------------------------------------------
+class XLDecoderLayer(tf.keras.layers.Layer):
+    def __init__(self, d_model, num_heads, dff, rate=0.1):
+        super(DecoderLayer, self).__init__()
+
+        self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
+        self.ffn = point_wise_feed_forward_network(d_model, dff)
+
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+        self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.dropout2 = tf.keras.layers.Dropout(rate)
+
+    def call(self, x, training, look_ahead_mask, padding_mask):
+        pass
+## -------------------------------------------------------------------
 ## -------------------------------------------------------------------
 
 ####################################################################
