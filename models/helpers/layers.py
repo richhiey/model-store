@@ -2,6 +2,7 @@
 # ---------------- Layers for building Transformers ----------------
 ####################################################################
 import numpy as np
+import tensorflow.keras.backend as K
 import tensorflow as tf
 from .utils import  point_wise_feed_forward_network, \
                     scaled_dot_product_attention, \
@@ -119,6 +120,7 @@ class DecoderLayer(tf.keras.layers.Layer):
         return out2, attn_weights_block1
 ## -------------------------------------------------------------------
 ## -------------------------------------------------------------------
+
 
 ## -------------------------------------------------------------------
 ## HELPERS FOR TRANSFORMER XL
@@ -578,7 +580,7 @@ class XLDecoderLayer(tf.keras.layers.Layer):
 
     def call(self, x, training, look_ahead_mask, padding_mask):
         embeddings, positional_encoding = x
-        last_memory = self.memory(embeddings, mask)
+        last_memory = self.memory(embeddings)
         context_bias, relative_bias = self.relative_position_bias[i](last_memory)
         mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
         mha_d = self.dropout1(mha, training = training)

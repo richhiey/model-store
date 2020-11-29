@@ -125,7 +125,8 @@ class TransformerXLEncoderStack(tf.keras.Model):
         ## -------------------------------------------------------------------
         self.embedding = tf.keras.layers.Embedding(
             self.input_vocab_size,
-            self.d_model
+            self.d_model,
+            name='midi_embedding'
         )
         ## -------------------------------------------------------------------
         self.pos_encoding = positional_encoding(
@@ -154,13 +155,13 @@ class TransformerXLEncoderStack(tf.keras.Model):
         # (batch_size, input_seq_len, d_model)
         inputx = self.embedding(x)
         inputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
-        inputx = self.dropout(inputx, training=training)
+        inputx_d = self.dropout(inputx, training=training)
     
         positional_encoding = self.pos_encoding[:, :seq_len, :]
 
         for i in range(self.num_layers):
-            inputx = self.enc_layers[i](
-                inputx, 
+            inputx_d = self.enc_layers[i](
+                inputx_d, 
                 positional_encoding,
                 training,
                 mask,

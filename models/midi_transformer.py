@@ -66,7 +66,7 @@ class MIDITransformer(tf.keras.Model):
 
 
     def __create_model__(self, max_sequence_length, d_model):
-        input_midi = tf.keras.layers.Input((max_sequence_length, d_model))
+        input_midi = tf.keras.layers.Input(batch_input_shape = (2, max_sequence_length, d_model))
         midi_embedding = self.midi_encoder(input_midi)
         output_midi = self.midi_decoder(midi_embedding)
         model = tf.keras.Model(inputs = input_midi, output = output_midi)
