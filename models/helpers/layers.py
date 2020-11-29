@@ -3,9 +3,9 @@
 ####################################################################
 import numpy as np
 import tensorflow as tf
-from .utils import  point_wise_feed_forward_network,
-                    scaled_dot_product_attention,
-                    create_look_ahead_mask,
+from .utils import  point_wise_feed_forward_network, \
+                    scaled_dot_product_attention, \
+                    create_look_ahead_mask, \
                     create_padding_mask
 ####################################################################
 
@@ -126,7 +126,7 @@ class DecoderLayer(tf.keras.layers.Layer):
 ## Transformer XL paper - https://arxiv.org/pdf/1901.02860.pdf
 ## Code reference - https://github.com/CyberZHG/keras-transformer-xl/
 ## -------------------------------------------------------------------
-class Memory(keras.layers.Layer):
+class Memory(tf.keras.layers.Layer):
     """Positional embeddings.
     # Arguments
         batch_size: int > 0. Maximum batch size.
@@ -142,7 +142,7 @@ class Memory(keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, batch_size, memory_len, target_len, output_dim, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -210,7 +210,7 @@ class Memory(keras.layers.Layer):
 
 
 ## -------------------------------------------------------------------
-class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
+class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
     """Positional embeddings.
     # Arguments
         units: int >= 0. Dimensions of all tensors.
@@ -246,15 +246,15 @@ class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
         self.num_head = num_head
         self.units_head = units // num_head
         self.activation = activation
-        self.activation = activations.get(activation)
+        self.activation = tf.keras.activations.get(activation)
         self.use_bias = use_bias
         self.attention_dropout = attention_dropout
-        self.kernel_initializer = initializers.get(kernel_initializer)
-        self.bias_initializer = initializers.get(bias_initializer)
-        self.kernel_regularizer = regularizers.get(kernel_regularizer)
-        self.bias_regularizer = regularizers.get(bias_regularizer)
-        self.kernel_constraint = constraints.get(kernel_constraint)
-        self.bias_constraint = constraints.get(bias_constraint)
+        self.kernel_initializer = tf.keras.initializers.get(kernel_initializer)
+        self.bias_initializer = tf.keras.initializers.get(bias_initializer)
+        self.kernel_regularizer = tf.keras.regularizers.get(kernel_regularizer)
+        self.bias_regularizer = tf.keras.regularizers.get(bias_regularizer)
+        self.kernel_constraint = tf.keras.constraints.get(kernel_constraint)
+        self.bias_constraint = tf.keras.constraints.get(bias_constraint)
 
         self.kernel_q, self.kernel_kv, self.kernel_o, self.kernel_r = (None,) * 4
         self.bias_q, self.bias_kv, self.bias_o, self.bias_r = (None,) * 4
@@ -330,7 +330,7 @@ class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
                 name='bias_r',
             )
         if 0.0 < self.attention_dropout < 1.0:
-            self.att_drop_layer = keras.layers.Dropout(self.attention_dropout)
+            self.att_drop_layer = tf.keras.layers.Dropout(self.attention_dropout)
         super(RelativePartialMultiHeadSelfAttention, self).build(input_shape)
 
     def _reshape_to_batches(self, x):
@@ -429,15 +429,15 @@ class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
         config = {
             'units': self.units,
             'num_head': self.num_head,
-            'activation': activations.serialize(self.activation),
+            'activation': tf.keras.activations.serialize(self.activation),
             'use_bias': self.use_bias,
             'attention_dropout': self.attention_dropout,
-            'kernel_initializer': initializers.serialize(self.kernel_initializer),
-            'bias_initializer': initializers.serialize(self.bias_initializer),
-            'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
-            'bias_regularizer': regularizers.serialize(self.bias_regularizer),
-            'kernel_constraint': constraints.serialize(self.kernel_constraint),
-            'bias_constraint': constraints.serialize(self.bias_constraint),
+            'kernel_initializer': tf.keras.initializers.serialize(self.kernel_initializer),
+            'bias_initializer': tf.keras.initializers.serialize(self.bias_initializer),
+            'kernel_regularizer': tf.keras.regularizers.serialize(self.kernel_regularizer),
+            'bias_regularizer': tf.keras.regularizers.serialize(self.bias_regularizer),
+            'kernel_constraint': tf.keras.constraints.serialize(self.kernel_constraint),
+            'bias_constraint': tf.keras.constraints.serialize(self.bias_constraint),
         }
         base_config = super(RelativePartialMultiHeadSelfAttention, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -445,7 +445,7 @@ class RelativePartialMultiHeadSelfAttention(keras.layers.Layer):
 
 
 ## -------------------------------------------------------------------
-class RelativeBias(keras.layers.Layer):
+class RelativeBias(tf.keras.layers.Layer):
     """Relative bias weights.
     # Arguments
         units: int >= 0. Number of hidden units.
@@ -466,9 +466,9 @@ class RelativeBias(keras.layers.Layer):
         super(RelativeBias, self).__init__(**kwargs)
         self.supports_masking = True
         self.units = units
-        self.bias_initializer = initializers.get(bias_initializer)
-        self.bias_regularizer = regularizers.get(bias_regularizer)
-        self.bias_constraint = constraints.get(bias_constraint)
+        self.bias_initializer = tf.keras.initializers.get(bias_initializer)
+        self.bias_regularizer = tf.keras.regularizers.get(bias_regularizer)
+        self.bias_constraint = tf.keras.constraints.get(bias_constraint)
 
         self.bias_context, self.bias_relative = None, None
 
@@ -514,8 +514,8 @@ class RelativeBias(keras.layers.Layer):
 
 ## -------------------------------------------------------------------
 class XLEncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1):
-        super(DecoderLayer, self).__init__()
+    def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1, layer_id = 1, **kwargs):
+        super(XLEncoderLayer, self).__init__()
 
         self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
@@ -528,23 +528,22 @@ class XLEncoderLayer(tf.keras.layers.Layer):
 
         self.relative_position_bias = RelativeBias(
             units=d_model,
-            name='RelativeBiasLayer-{}'.format(i + 1)
+            name='RelativeBiasLayer-{}'.format(layer_id)
         )
         self.memory = Memory(
             memory_length, 
             segment_length, 
             d_model, 
-            name = 'MemoryLayer-{}'.format(i + 1)
+            name = 'MemoryLayer-{}'.format(layer_id)
         )
 
-    def call(self, x, training, mask):
-        embeddings, positional_encoding = x
+    def call(self, embeddings, positional_encoding, training, mask):
         last_memory = self.memory(embeddings)
         context_bias, relative_bias = self.relative_position_bias[i](last_memory)
         mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
         mha_d = self.dropout1(mha, training = training)
         mha_d = self.layernorm1(mha_d + embeddings)
-        ffn = self.ffn(mha)
+        ffn = self.ffn(mha_d)
         ffn_d = self.dropout2(ffn, training = training)
         output = self.layernorm2(ffn_d + mha_d)
         return output
@@ -553,8 +552,8 @@ class XLEncoderLayer(tf.keras.layers.Layer):
 
 ## -------------------------------------------------------------------
 class XLDecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1, layer_num=1):
-        super(DecoderLayer, self).__init__()
+    def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1, layer_id = 1, **kwargs):
+        super(XLDecoderLayer, self).__init__()
 
         self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
@@ -567,13 +566,13 @@ class XLDecoderLayer(tf.keras.layers.Layer):
 
         self.relative_position_bias = RelativeBias(
             units=d_model,
-            name='RelativeBiasLayer-{}'.format(layer_num)
+            name='RelativeBiasLayer-{}'.format(layer_id)
         )
         self.memories = Memory(
             memory_length, 
             segment_length, 
             d_model, 
-            name = 'MemoryLayer-{}'.format(layer_num)
+            name = 'MemoryLayer-{}'.format(layer_id)
         )
 
 

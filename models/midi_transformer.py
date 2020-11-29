@@ -1,11 +1,16 @@
 ## MIDI Transformer on Pop909 dataset
 
+import os
+import json
 import tensorflow as tf
-from helpers.layers import TransformerEncoder, TransformerDecoder
+from .helpers.blocks import TransformerXLEncoderStack, TransformerXLDecoderStack
+
 
 class MIDITransformer(tf.keras.Model):
 ## -------------------------------------------------------------------
     def __init__(self, config_path, model_path):
+
+        super(MIDITransformer, self).__init__()
         ## -------------------------------------------------------------------
         self.model_path = model_path
         if os.path.exists(self.model_path):
@@ -13,11 +18,14 @@ class MIDITransformer(tf.keras.Model):
         ## -------------------------------------------------------------------
         self.config_path = config_path
         with open(self.config_path) as json_file: 
-            self.configs = json.load(self.config_path)
+            self.configs = json.loads(json_file.read())
         ## -------------------------------------------------------------------
         self.midi_encoder = TransformerXLEncoderStack(self.configs['encoder'])
-        self.midi_decoder = TransformerXLDecoderStack(self.configs['encoder'])
-        self.model = self.__create_model__()
+        self.midi_decoder = TransformerXLDecoderStack(self.configs['decoder'])
+        self.model = self.__create_model__(
+            int(self.configs['encoder']['max_sequence_length']),
+            int(self.configs['encoder']['d_model'])
+        )
         ## -------------------------------------------------------------------
         self.ckpt = tf.train.Checkpoint(
             step = tf.Variable(1),
@@ -57,8 +65,8 @@ class MIDITransformer(tf.keras.Model):
         ## -------------------------------------------------------------------
 
 
-    def __create_model__(self):
-        input_midi = tf.keras.layers.Input((256, 256))
+    def __create_model__(self, max_sequence_length, d_model):
+        input_midi = tf.keras.layers.Input((max_sequence_length, d_model))
         midi_embedding = self.midi_encoder(input_midi)
         output_midi = self.midi_decoder(midi_embedding)
         model = tf.keras.Model(inputs = input_midi, output = output_midi)

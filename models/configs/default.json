@@ -1,24 +1,24 @@
 {
 	"encoder": {
-        "num_layers": 4,
-        "d_model": 256,
-        "num_heads": 8,
-        "dff": 128,
-        "input_vocab_size": 256,
-        "maximum_position_encoding": 128,
-        "memory_length": 256,
-        "dropout_rate": 0.1,
-        "max_sequence_length": 128
+        "num_layers": "4",
+        "d_model": "256",
+        "num_heads": "8",
+        "dff": "128",
+        "input_vocab_size": "256",
+        "maximum_position_encoding": "128",
+        "memory_length": "256",
+        "dropout_rate": "0.1",
+        "max_sequence_length": "128"
 	},
 	"decoder": {
-        "num_layers": 4,
-        "d_model": 256,
-        "num_heads": 8,
-        "dff": 128,
-        "target_vocab_size": 256,
-        "maximum_position_encoding": 128,
-        "memory_length": 256,
-        "dropout_rate": 0.1,
-        "max_sequence_length": 128
-	},
+        "num_layers": "4",
+        "d_model": "256",
+        "num_heads": "8",
+        "dff": "128",
+        "target_vocab_size": "256",
+        "maximum_position_encoding": "128",
+        "memory_length": "256",
+        "dropout_rate": "0.1",
+        "max_sequence_length": "128"
+	}
 }
