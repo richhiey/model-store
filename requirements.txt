@@ -1,7 +1,9 @@
+absl-py==0.11.0
 appdirs==1.4.3
 apturl==0.5.2
 argon2-cffi==20.1.0
 asn1crypto==0.24.0
+astunparse==1.6.3
 async-generator==1.10
 attrs==20.3.0
 backcall==0.2.0
@@ -10,6 +12,7 @@ bleach==3.2.1
 blinker==1.4
 Brlapi==0.7.0
 CacheControl==0.12.6
+cachetools==4.1.1
 certifi==2019.11.28
 cffi==1.14.3
 chardet==3.0.4
@@ -33,7 +36,12 @@ fasteners==0.14.1
 filelock==3.0.12
 Flask==1.1.2
 future==0.18.2
-h5py==3.1.0
+gast==0.3.3
+google-auth==1.23.0
+google-auth-oauthlib==0.4.2
+google-pasta==0.2.0
+grpcio==1.33.2
+h5py==2.10.0
 html5lib==1.0.1
 httplib2==0.14.0
 idna==2.8
@@ -55,6 +63,7 @@ jupyterlab-pygments==0.1.2
 jupyterlab-server==1.2.0
 Keras==2.4.3
 keras-adaptive-softmax==0.6.0
+Keras-Preprocessing==1.1.2
 keyring==18.0.1
 keyrings.alt==3.4.0
 language-selector==0.1
@@ -65,6 +74,7 @@ lockfile==0.12.2
 louis==3.12.0
 macaroonbakery==1.3.1
 Mako==1.1.0
+Markdown==3.3.3
 MarkupSafe==1.1.1
 mido==1.2.9
 mistune==0.8.4
@@ -79,10 +89,11 @@ nest-asyncio==1.4.3
 netifaces==0.10.4
 nose==1.3.7
 notebook==6.1.5
-numpy==1.19.4
+numpy==1.18.5
 oauth==1.0.1
 oauthlib==3.1.0
 olefile==0.46
+opt-einsum==3.3.0
 packaging==20.3
 pandocfilters==1.4.3
 paramiko==2.6.0
@@ -95,9 +106,11 @@ pretty-midi==0.2.9
 progress==1.5
 prometheus-client==0.9.0
 prompt-toolkit==3.0.8
-protobuf==3.6.1
+protobuf==3.14.0
 psutil==5.5.1
 ptyprocess==0.6.0
+pyasn1==0.4.8
+pyasn1-modules==0.2.8
 pycairo==1.16.2
 pycparser==2.20
 pycrypto==2.6.1
@@ -121,8 +134,10 @@ PyYAML==5.3.1
 pyzmq==20.0.0
 reportlab==3.5.34
 requests==2.22.0
+requests-oauthlib==1.3.0
 requests-unixsocket==0.2.0
 retrying==1.3.3
+rsa==4.6
 scipy==1.5.4
 SecretStorage==2.3.1
 Send2Trash==1.5.0
@@ -130,6 +145,11 @@ simplejson==3.16.0
 six==1.14.0
 system-service==0.3
 systemd-python==234
+tensorboard==2.4.0
+tensorboard-plugin-wit==1.7.0
+tensorflow==2.3.1
+tensorflow-estimator==2.3.0
+termcolor==1.1.0
 terminado==0.9.1
 testpath==0.4.4
 toml==0.10.2
@@ -147,6 +167,7 @@ wcwidth==0.2.5
 webcolors==1.11.1
 webencodings==0.5.1
 Werkzeug==1.0.1
+wrapt==1.12.1
 xkit==0.0.0
 zipp==1.0.0
 zope.interface==4.7.1
