@@ -514,7 +514,7 @@ class RelativeBias(keras.layers.Layer):
 
 ## -------------------------------------------------------------------
 class XLEncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1):
         super(DecoderLayer, self).__init__()
 
         self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
@@ -526,33 +526,34 @@ class XLEncoderLayer(tf.keras.layers.Layer):
         self.dropout1 = tf.keras.layers.Dropout(rate)
         self.dropout2 = tf.keras.layers.Dropout(rate)
 
-        self.relative_position_bias = [
-            RelativeBias(
-                units=units,
-                name='RelativeBiasLayer-{}'.format(i + 1)
-            ) for i in range(num_layers)
-        ]
-        self.memories = [
-            Memory(
-                batch_size, 
-                memory_length, 
-                segment_length, 
-                d_model, 
-                name = 'MemoryLayer-{}'.format(i + 1)
-            ) for i in range(num_layers)
-        ]
+        self.relative_position_bias = RelativeBias(
+            units=d_model,
+            name='RelativeBiasLayer-{}'.format(i + 1)
+        )
+        self.memory = Memory(
+            memory_length, 
+            segment_length, 
+            d_model, 
+            name = 'MemoryLayer-{}'.format(i + 1)
+        )
 
-    def call(self, x, training):
-        encoder_output = keras.layers.Add(name='Attention-Res-{}'.format(i + 1))([inputx, encoder_output])
-        encoder_output = keras.layers.LayerNormalization(name='Attention-Norm-{}'.format(i + 1))(encoder_output)
-        if (i + 1 < self.num_layers)
-            last_memory = self.memory[i + 1](encoder_output, self.memory_length)
+    def call(self, x, training, mask):
+        embeddings, positional_encoding = x
+        last_memory = self.memory(embeddings)
+        context_bias, relative_bias = self.relative_position_bias[i](last_memory)
+        mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
+        mha_d = self.dropout1(mha, training = training)
+        mha_d = self.layernorm1(mha_d + embeddings)
+        ffn = self.ffn(mha)
+        ffn_d = self.dropout2(ffn, training = training)
+        output = self.layernorm2(ffn_d + mha_d)
+        return output
 ## -------------------------------------------------------------------
 
 
 ## -------------------------------------------------------------------
 class XLDecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model, num_heads, dff, rate=0.1, layer_num=1):
         super(DecoderLayer, self).__init__()
 
         self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
@@ -564,9 +565,29 @@ class XLDecoderLayer(tf.keras.layers.Layer):
         self.dropout1 = tf.keras.layers.Dropout(rate)
         self.dropout2 = tf.keras.layers.Dropout(rate)
 
+        self.relative_position_bias = RelativeBias(
+            units=d_model,
+            name='RelativeBiasLayer-{}'.format(layer_num)
+        )
+        self.memories = Memory(
+            memory_length, 
+            segment_length, 
+            d_model, 
+            name = 'MemoryLayer-{}'.format(layer_num)
+        )
+
+
     def call(self, x, training, look_ahead_mask, padding_mask):
-        pass
-## -------------------------------------------------------------------
+        embeddings, positional_encoding = x
+        last_memory = self.memory(embeddings, mask)
+        context_bias, relative_bias = self.relative_position_bias[i](last_memory)
+        mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
+        mha_d = self.dropout1(mha, training = training)
+        mha_d = self.layernorm1(mha_d + embeddings)
+        ffn = self.ffn(mha)
+        ffn_d = self.dropout2(ffn, training = training)
+        output = self.layernorm2(ffn_d + mha_d)
+        return output
 ## -------------------------------------------------------------------
 
 ####################################################################

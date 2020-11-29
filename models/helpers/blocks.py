@@ -9,7 +9,7 @@ from .layers import EncoderLayer, DecoderLayer,
 ####################################################################
 
 ## -------------------------------------------------------------------
-class TransformerEncoder(tf.keras.Model):
+class TransformerEncoderStack(tf.keras.Model):
 
     def __init__(
         self, 
@@ -53,7 +53,7 @@ class TransformerEncoder(tf.keras.Model):
 
 
 ## -------------------------------------------------------------------
-class TransformerDecoder(tf.keras.Model):
+class TransformerDecoderStack(tf.keras.Model):
 
     def __init__(
         self,
@@ -105,7 +105,7 @@ class TransformerDecoder(tf.keras.Model):
 
 
 ## -------------------------------------------------------------------
-class TransformerXLEncoder(tf.keras.Model):
+class TransformerXLEncoderStack(tf.keras.Model):
     def __init__(
         self,
         num_layers,
@@ -119,31 +119,33 @@ class TransformerXLEncoder(tf.keras.Model):
     ):
         super(TransformerXLEncoder, self).__init__()
 
-        self.num_layers = num_layers
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.dff = dff
-        self.input_vocab_size = input_vocab_size
-        self.maximum_position_encoding = maximum_position_encoding
-        self.memory_length = tf.constant(memory_length)
-
+        self.num_layers = configs['num_layers']
+        self.d_model = configs['d_model']
+        self.num_heads = configs['num_heads']
+        self.dff = configs['dff']
+        self.input_vocab_size = configs['target_vocab_size']
+        self.maximum_position_encoding = configs['maximum_position_encoding']
+        self.memory_length = tf.constant(configs['memory_length'])
+        self.max_sequence_length = tf.constant(configs['max_sequence_length'])
         # Input Embedding Layer
         self.embedding = tf.keras.layers.Embedding(
-            input_vocab_size,
-            d_model
+            self.input_vocab_size,
+            self.d_model
         )
         # Sinusoidal positional encoding function
         self.pos_encoding = positional_encoding(
-            maximum_position_encoding,
-            d_model
+            self.maximum_position_encoding,
+            self.d_model
         )
         # Transformer XL Encoder Layer
         self.enc_layers = [
             XLEncoderLayer(
-                d_model, 
-                num_heads, 
-                dff, 
-                dropout_rate, 
+                self.d_model, 
+                self.num_heads, 
+                self.dff, 
+                self.dropout_rate,
+                self.memory_length,
+                self.max_sequence_length, 
                 name = 'XLEncoderLayer-{}'.format(i + 1)
             ) for i in range(num_layers)
         ]
@@ -173,45 +175,35 @@ class TransformerXLEncoder(tf.keras.Model):
 
 
 ## -------------------------------------------------------------------
-class TransformerXLDecoder(tf.keras.Model):
-    def __init__(
-        self,
-        num_layers,
-        d_model,
-        num_heads,
-        dff,
-        target_vocab_size,
-        maximum_position_encoding,
-        memory_length,
-        dropout_rate=0.1
-    ):
+class TransformerXLDecoderStack(tf.keras.Model):
+    def __init__(self, configs):
         super(TransformerXLDecoder, self).__init__()
 
-        self.num_layers = num_layers
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.dff = dff
-        self.target_vocab_size = target_vocab_size
-        self.maximum_position_encoding = maximum_position_encoding
-        self.memory_length = tf.constant(memory_length)
+        self.num_layers = configs['num_layers']
+        self.d_model = configs['d_model']
+        self.num_heads = configs['num_heads']
+        self.dff = configs['dff']
+        self.target_vocab_size = configs['target_vocab_size']
+        self.maximum_position_encoding = configs['maximum_position_encoding']
+        self.memory_length = tf.constant(configs['memory_length'])
         
         # Ouput Embedding Layer
         self.embedding = tf.keras.layers.Embedding(
-            target_vocab_size,
-            d_model
+            self.target_vocab_size,
+            self.d_model
         )
         # Sinusoidal positional encoding function
         self.pos_encoding = positional_encoding(
-            maximum_position_encoding,
-            d_model
+            self.maximum_position_encoding,
+            self.d_model
         )
         # Transformer XL Decoder Layer
         self.dec_layers = [
             XLDecoderLayer(
-                d_model,
-                num_heads,
-                dff,
-                dropout_rate,
+                self.d_model,
+                self.num_heads,
+                self.dff,
+                self.dropout_rate,
                 name = 'XLDecoderLayer-{}'.format(i + 1)
             ) for i in range(num_layers)
         ]
