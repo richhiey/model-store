@@ -1,6 +1,6 @@
-####################################################################
+##############################################################################################################
 # ---------------- Layers for building Transformers ----------------
-####################################################################
+##############################################################################################################
 import numpy as np
 import tensorflow.keras.backend as K
 import tensorflow as tf
@@ -8,14 +8,17 @@ from .utils import  point_wise_feed_forward_network, \
                     scaled_dot_product_attention, \
                     create_look_ahead_mask, \
                     create_padding_mask
-####################################################################
+##############################################################################################################
 
+
+##############################################################################################################
 ## -------------------------------------------------------------------
 ## HELPERS FOR VANILLA TRANSFORMER
 ## -------------------------------------------------------------------
 ## Transformer paper - https://arxiv.org/abs/1706.03762
 ## Code reference - https://www.tensorflow.org/tutorials/text/transformer
 ## -------------------------------------------------------------------
+##############################################################################################################
 class MultiHeadSelfAttention(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads):
         super(MultiHeadSelfAttention, self).__init__()
@@ -63,10 +66,10 @@ class MultiHeadSelfAttention(tf.keras.layers.Layer):
         # (batch_size, seq_len_q, d_model)
         output = self.dense(concat_attention)
         return output, attention_weights
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class EncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, rate=0.1):
         super(EncoderLayer, self).__init__()
@@ -91,10 +94,10 @@ class EncoderLayer(tf.keras.layers.Layer):
         out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
 
         return out2
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class DecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, rate=0.1):
         super(DecoderLayer, self).__init__()
@@ -118,16 +121,16 @@ class DecoderLayer(tf.keras.layers.Layer):
         ffn_output = self.dropout2(ffn_output, training=training)
         out2 = self.layernorm2(ffn_output + out1)  # (batch_size, target_seq_len, d_model)
         return out2, attn_weights_block1
-## -------------------------------------------------------------------
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
+##############################################################################################################
 ## -------------------------------------------------------------------
 ## HELPERS FOR TRANSFORMER XL
 ## -------------------------------------------------------------------
 ## Transformer XL paper - https://arxiv.org/pdf/1901.02860.pdf
 ## Code reference - https://github.com/CyberZHG/keras-transformer-xl/
-## -------------------------------------------------------------------
+##############################################################################################################
 class Memory(tf.keras.layers.Layer):
     """Positional embeddings.
     # Arguments
@@ -144,7 +147,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=10, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -175,7 +178,7 @@ class Memory(tf.keras.layers.Layer):
 
     def call(self, inputs, **kwargs):
         inputs, memory_length = inputs
-        memory_length = K.cast(memory_length[0][0], 'int32')
+        memory_length = K.cast(memory_length, 'int32')
         batch_size = K.cast(K.shape(inputs)[0], 'int32')
         seq_len = K.cast(K.shape(inputs)[1], 'int32')
 
@@ -208,10 +211,10 @@ class Memory(tf.keras.layers.Layer):
         }
         base_config = super(Memory, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
     """Positional embeddings.
     # Arguments
@@ -366,12 +369,13 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return input_shape[0]
 
-    def call(self, inputs, mask=None, training=None):
-        inputs, relatives, memories, bias_context, bias_relative = inputs
-        full = K.concatenate([memories, inputs], axis=1)      # (batch, prev_len + seq_len, units)
-        w_q = K.dot(inputs, self.kernel_q)                    # (batch, seq_len, units)
-        w_kv = K.dot(full, self.kernel_kv)                    # (batch, prev_len + seq_len, units * 2)
+    def call(self, query, key_value, others, mask=None, training=True):
+        relatives, memories, bias_context, bias_relative = others
+        w_q = K.dot(query, self.kernel_q)                     # (batch, seq_len, units)
+        w_kv = K.dot(key_value, self.kernel_kv)               # (batch, prev_len + seq_len, units * 2)
         w_r = K.dot(relatives, self.kernel_r)                 # (batch, prev_len + seq_len, units)
+        
+        print('----------------------------------')
         if self.use_bias:
             w_q = K.bias_add(w_q, self.bias_q)
             w_kv = K.bias_add(w_kv, self.bias_kv)
@@ -383,17 +387,28 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
 
         w_k = w_kv[:, :, :self.units]                         # (batch, prev_len + seq_len, units)
         w_v = w_kv[:, :, self.units:]                         # (batch, prev_len + seq_len, units)
-
+        print(tf.shape(w_k))
+        print(tf.shape(w_v))
         w_qc = K.bias_add(w_q, bias_context)
         w_qc = self._reshape_to_batches(w_qc)                 # (batch * n_head, seq_len, units_head)
         w_k = self._reshape_to_batches(w_k)                   # (batch * n_head, prev_len + seq_len, units_head)
+        print(tf.shape(w_qc))
+        print(tf.shape(w_k))        
         a_context = K.batch_dot(w_qc, w_k, axes=2)            # (batch * n_head, seq_len, prev_len + seq_len)
+        print('a_context')
+        print(tf.shape(a_context))
+        print('----------------------------------')
 
         w_qr = K.bias_add(w_q, bias_relative)
         w_qr = self._reshape_to_batches(w_qr)                 # (batch * n_head, seq_len, units_head)
         w_r = self._reshape_to_batches(w_r)                   # (batch * n_head, prev_len + seq_len, units_head)
+        print(tf.shape(w_qr))
+        print(tf.shape(w_r))
         a_relative = K.batch_dot(w_qr, w_r, axes=2)           # (batch * n_head, seq_len, prev_len + seq_len)
         a_relative = self._relative_shift(a_relative)         # (batch * n_head, seq_len, prev_len + seq_len)
+        print('a_relative')
+        print(tf.shape(a_relative))
+        print('----------------------------------')
 
         att = (a_context + a_relative) / K.sqrt(K.constant(self.units_head, dtype=K.floatx()))
         exp = K.exp(att - K.max(att, axis=-1, keepdims=True))
@@ -420,11 +435,12 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
         if self.activation is not None:
             w_o = self.activation(w_o)
 
-        if TF_KERAS:
-            # Add shape information to tensor when using `tf.keras`
-            input_shape = K.int_shape(inputs)
-            if input_shape[1] is not None:
-                w_o = K.reshape(w_o, (-1,) + input_shape[1:])
+        print(tf.shape(w_o))
+        #if TF_KERAS:
+        #    # Add shape information to tensor when using `tf.keras`
+        #    input_shape = K.int_shape(inputs)
+        #    if input_shape[1] is not None:
+        #        w_o = K.reshape(w_o, (-1,) + input_shape[1:])
         return w_o
 
     def get_config(self):
@@ -443,10 +459,10 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
         }
         base_config = super(RelativePartialMultiHeadSelfAttention, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class RelativeBias(tf.keras.layers.Layer):
     """Relative bias weights.
     # Arguments
@@ -511,15 +527,15 @@ class RelativeBias(tf.keras.layers.Layer):
         }
         base_config = super(RelativeBias, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
-## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class XLEncoderLayer(tf.keras.layers.Layer):
+    #--------------------------------------------------------------------------------
     def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1, layer_id = 1, **kwargs):
         super(XLEncoderLayer, self).__init__()
-
-        self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
+        self.multi_headed_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
 
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -539,56 +555,83 @@ class XLEncoderLayer(tf.keras.layers.Layer):
             name = 'MemoryLayer-{}'.format(layer_id)
         )
 
-    def call(self, embeddings, positional_encoding, training, mask):
-        last_memory = self.memory(embeddings)
-        context_bias, relative_bias = self.relative_position_bias[i](last_memory)
-        mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
+    def call(self, embeddings, positional_encoding, memory_length, training, mask):
+        #--------------------------------------------------------------------------------
+        last_memory = self.memory([embeddings, memory_length])
+        context_bias, relative_bias = self.relative_position_bias(last_memory)
+        full = K.concatenate([last_memory, embeddings], axis=1)      # (batch, prev_len + seq_len, units)
+        #--------------------------------------------------------------------------------
+        mha = self.multi_headed_attention(embeddings, full, [positional_encoding, last_memory, context_bias, relative_bias])
         mha_d = self.dropout1(mha, training = training)
         mha_d = self.layernorm1(mha_d + embeddings)
+        #--------------------------------------------------------------------------------
         ffn = self.ffn(mha_d)
         ffn_d = self.dropout2(ffn, training = training)
         output = self.layernorm2(ffn_d + mha_d)
+        #--------------------------------------------------------------------------------
         return output
-## -------------------------------------------------------------------
+        #--------------------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class XLDecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, memory_length, segment_length, rate=0.1, layer_id = 1, **kwargs):
         super(XLDecoderLayer, self).__init__()
-
-        self.mha1 = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
+        #--------------------------------------------------------------------------------
+        self.masked_multi_headed_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
+        self.encoder_decoder_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
-
+        #--------------------------------------------------------------------------------
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-
+        #--------------------------------------------------------------------------------
         self.dropout1 = tf.keras.layers.Dropout(rate)
         self.dropout2 = tf.keras.layers.Dropout(rate)
-
+        #--------------------------------------------------------------------------------
         self.relative_position_bias = RelativeBias(
             units=d_model,
             name='RelativeBiasLayer-{}'.format(layer_id)
         )
-        self.memories = Memory(
+        self.memory = Memory(
             memory_length, 
             segment_length, 
             d_model, 
             name = 'MemoryLayer-{}'.format(layer_id)
         )
+        #--------------------------------------------------------------------------------
 
 
-    def call(self, x, training, look_ahead_mask, padding_mask):
-        embeddings, positional_encoding = x
+    def call(self, embeddings, encoder_outputs, positional_encoding, look_ahead_mask, padding_mask, training):
+        #--------------------------------------------------------------------------------
         last_memory = self.memory(embeddings)
         context_bias, relative_bias = self.relative_position_bias[i](last_memory)
-        mha = self.mha1(embeddings, positional_encoding, last_memory, context_bias, relative_bias)
-        mha_d = self.dropout1(mha, training = training)
-        mha_d = self.layernorm1(mha_d + embeddings)
+        # (batch, prev_len + seq_len, units)
+        past_and_present = K.concatenate(
+            [last_memory, embeddings],
+            axis=1
+        )
+        #--------------------------------------------------------------------------------
+        mmha = self.masked_multi_headed_attention(
+            embeddings,
+            past_and_present,
+            [positional_encoding, last_memory, context_bias, relative_bias],
+            look_ahead_mask
+        )
+        mmha_d = self.dropout1(mmha, training = training)
+        mmha_d = self.layernorm1(mha_d + embeddings)
+        #--------------------------------------------------------------------------------
+        eda = self.encoder_decoder_attention(
+            mmha_d,
+            encoder_outputs,
+        )
+        eda_d = self.dropout1(eda, training = training)
+        eda_d = self.layernorm1(eda_d + mmha_d)
+        #--------------------------------------------------------------------------------
         ffn = self.ffn(mha)
         ffn_d = self.dropout2(ffn, training = training)
         output = self.layernorm2(ffn_d + mha_d)
+        #--------------------------------------------------------------------------------
         return output
-## -------------------------------------------------------------------
-
-####################################################################
+        #--------------------------------------------------------------------------------
+##############################################################################################################

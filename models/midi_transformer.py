@@ -3,14 +3,16 @@
 import os
 import json
 import tensorflow as tf
-from .helpers.blocks import TransformerXLEncoderStack, TransformerXLDecoderStack
-
+from .helpers.blocks import TransformerXLEncoderStack, \
+                            TransformerXLDecoderStack
+from .helpers.utils import  positional_encoding, \
+                            create_look_ahead_mask
 
 class MIDITransformer(tf.keras.Model):
 ## -------------------------------------------------------------------
-    def __init__(self, config_path, model_path):
+    def __init__(self, config_path, model_path, **kwargs):
 
-        super(MIDITransformer, self).__init__()
+        super(MIDITransformer, self).__init__(**kwargs)
         ## -------------------------------------------------------------------
         self.model_path = model_path
         if os.path.exists(self.model_path):
@@ -20,12 +22,15 @@ class MIDITransformer(tf.keras.Model):
         with open(self.config_path) as json_file: 
             self.configs = json.loads(json_file.read())
         ## -------------------------------------------------------------------
-        self.midi_encoder = TransformerXLEncoderStack(self.configs['encoder'])
-        self.midi_decoder = TransformerXLDecoderStack(self.configs['decoder'])
-        self.model = self.__create_model__(
-            int(self.configs['encoder']['max_sequence_length']),
-            int(self.configs['encoder']['d_model'])
+        self.max_sequence_length = int(self.configs['encoder']['max_sequence_length'])
+        self.d_model = int(self.configs['encoder']['d_model'])
+        self.pos_encoding = positional_encoding(
+            self.max_sequence_length,
+            self.d_model
         )
+        self.encoder_stack = TransformerXLEncoderStack(self.configs['encoder'], dynamic=True)
+        self.decoder_stack = TransformerXLDecoderStack(self.configs['decoder'], dynamic=True)
+        self.model = self.__create_model__()
         ## -------------------------------------------------------------------
         self.ckpt = tf.train.Checkpoint(
             step = tf.Variable(1),
@@ -65,9 +70,16 @@ class MIDITransformer(tf.keras.Model):
         ## -------------------------------------------------------------------
 
 
-    def __create_model__(self, max_sequence_length, d_model):
-        input_midi = tf.keras.layers.Input(batch_input_shape = (2, max_sequence_length, d_model))
-        midi_embedding = self.midi_encoder(input_midi)
-        output_midi = self.midi_decoder(midi_embedding)
-        model = tf.keras.Model(inputs = input_midi, output = output_midi)
-        return model
+    def __create_model__(self):
+        midi_input = tf.keras.layers.Input(
+            batch_input_shape = (10, self.max_sequence_length)
+        )
+        memory_length_input = tf.keras.layers.Input(
+            shape=(1,),
+            name='Input-Memory-Length'
+        )
+        midi_embedding = self.encoder_stack(midi_input, self.pos_encoding)
+        look_ahead_mask = create_look_ahead_mask(self.max_sequence_length)
+        midi_output = self.decoder_stack(midi_embedding, self.pos_encoding, look_ahead_mask)
+        #model = tf.keras.Model(inputs = [midi_input, memory_length_input], output = midi_output)
+        #return model

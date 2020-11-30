@@ -1,7 +1,7 @@
 {
 	"encoder": {
         "num_layers": "4",
-        "d_model": "256",
+        "d_model": "128",
         "num_heads": "8",
         "dff": "128",
         "input_vocab_size": "256",
@@ -12,7 +12,7 @@
 	},
 	"decoder": {
         "num_layers": "4",
-        "d_model": "256",
+        "d_model": "128",
         "num_heads": "8",
         "dff": "128",
         "target_vocab_size": "256",

@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 ####################################################################
 
+
 ## -------------------------------------------------------------------
 ## Return angle for a particular position in the sequence to calculate
 ## positional encoding 
