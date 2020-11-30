@@ -1,6 +1,6 @@
-####################################################################
+##############################################################################################################
 # ---------------- Model blocks for building Transformers ----------------
-####################################################################
+##############################################################################################################
 import tensorflow as tf
 from .utils import positional_encoding
 from .layers import EncoderLayer, \
@@ -8,25 +8,31 @@ from .layers import EncoderLayer, \
                     XLEncoderLayer, \
                     XLDecoderLayer, \
                     Memory
-####################################################################
+##############################################################################################################
 
+
+##############################################################################################################
 ## -------------------------------------------------------------------
+## TENSORFLOW MODELS FOR VANILLA TRANSFORMER
+## -------------------------------------------------------------------
+## Transformer paper - https://arxiv.org/abs/1706.03762
+## -------------------------------------------------------------------
+##############################################################################################################
 class TransformerEncoderStack(tf.keras.Model):
 
-    def __init__(
-        self, 
-        num_layers, 
-        d_model, 
-        num_heads, 
-        dff, 
-        input_vocab_size,
-        maximum_position_encoding, 
-        rate = 0.1
-    ):
+    def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
+                    maximum_position_encoding, rate = 0.1):
+        ## -------------------------------------------------------------------
         super(TransformerEncoder, self).__init__()
-
-        self.d_model = d_model
+        ## -------------------------------------------------------------------
         self.num_layers = num_layers
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.dff = dff
+        self.input_vocab_size = input_vocab_size
+        self.maximum_position_encoding = maximum_position_encoding
+        self.rate = rate
+        ## -------------------------------------------------------------------
         self.embedding = tf.keras.layers.Embedding(
             input_vocab_size,
             d_model
@@ -35,41 +41,42 @@ class TransformerEncoderStack(tf.keras.Model):
             maximum_position_encoding, 
             d_model
         )
+        self.dropout = tf.keras.layers.Dropout(rate)
+        ## -------------------------------------------------------------------
         self.enc_layers = [
             EncoderLayer(d_model, num_heads, dff, rate) for _ in range(num_layers)
         ]
-        self.dropout = tf.keras.layers.Dropout(rate)
+        ## -------------------------------------------------------------------
 
    
     def call(self, x, training, mask):
+        ## -------------------------------------------------------------------
         seq_len = tf.shape(x)[1]
-        x = self.embedding(x)  # (batch_size, input_seq_len, d_model)
+        x = self.embedding(x)                                               # (batch_size, input_seq_len, d_model)
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
-        # adding embedding and position encoding.
+        ## -------------------------------------------------------------------
         x += self.pos_encoding[:, :seq_len, :]
         x = self.dropout(x, training=training)
+
         for i in range(self.num_layers):
             x = self.enc_layers[i](x, training, mask)
-        return x  # (batch_size, input_seq_len, d_model)
-## -------------------------------------------------------------------
+        ## -------------------------------------------------------------------
+        return x                                                           # (batch_size, input_seq_len, d_model)
+        ## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class TransformerDecoderStack(tf.keras.Model):
 
-    def __init__(
-        self,
-        num_layers,
-        d_model,
-        num_heads,
-        dff,
-        target_vocab_size,
-        maximum_position_encoding,
-        rate=0.1
-    ):
+    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size,
+                    maximum_position_encoding, rate=0.1):
+        ## -------------------------------------------------------------------
         super(TransformerDecoder, self).__init__()
-        self.d_model = d_model
+        ## -------------------------------------------------------------------
         self.num_layers = num_layers
+        self.d_model = d_model
+        ## -------------------------------------------------------------------
         self.embedding = tf.keras.layers.Embedding(
             target_vocab_size,
             d_model
@@ -78,38 +85,41 @@ class TransformerDecoderStack(tf.keras.Model):
             maximum_position_encoding,
             d_model
         )
+        self.dropout = tf.keras.layers.Dropout(rate)
+        ## -------------------------------------------------------------------
         self.dec_layers = [
             DecoderLayer(d_model, num_heads, dff, rate) for _ in range(num_layers)
         ]
-        self.dropout = tf.keras.layers.Dropout(rate)
+        ## -------------------------------------------------------------------
 
 
     def call(self, x, look_ahead_mask, padding_mask, training=True):
+        ## -------------------------------------------------------------------
         seq_len = tf.shape(x)[1]
         attention_weights = {}
-    
+        ## -------------------------------------------------------------------
         x = self.embedding(x)  # (batch_size, target_seq_len, d_model)
         x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         x += self.pos_encoding[:, :seq_len, :]
-    
         x = self.dropout(x, training=training)
-
+        ## -------------------------------------------------------------------
         for i in range(self.num_layers):
             x, block1 = self.dec_layers[i](
                 x, training, look_ahead_mask, padding_mask
             )
-      
+        ## -------------------------------------------------------------------
         attention_weights['decoder_layer{}_block1'.format(i+1)] = block1
-    
-        # x.shape == (batch_size, target_seq_len, d_model)
+        ## -------------------------------------------------------------------    
         return x, attention_weights
-## -------------------------------------------------------------------
+        ## -------------------------------------------------------------------
+##############################################################################################################
 
 
-## -------------------------------------------------------------------
+##############################################################################################################
 class TransformerXLEncoderStack(tf.keras.Model):
-    def __init__(self, configs, **kwargs):
 
+    def __init__(self, configs, **kwargs):
+        ## -------------------------------------------------------------------
         super(TransformerXLEncoderStack, self).__init__(**kwargs)
         ## -------------------------------------------------------------------
         self.num_layers = int(configs['num_layers'])
@@ -142,16 +152,18 @@ class TransformerXLEncoderStack(tf.keras.Model):
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)
         ## -------------------------------------------------------------------
 
+
     def call(self, inputs, positional_encoding, padding_mask=None, training=True):
+        ## -------------------------------------------------------------------
         x, memory_length = inputs
-        # (batch_size, input_seq_len, d_model)
-        inputx = self.embedding(x)
+        inputx = self.embedding(x)                                          # (batch_size, input_seq_len, d_model)
         inputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         inputx_d = self.dropout(inputx, training=training)
         seq_len = tf.shape(inputx_d)[1]
+        ## -------------------------------------------------------------------
         positional_encoding = tf.tile(tf.expand_dims(positional_encoding, axis=0), [10, 1, 1])
         positional_encoding = positional_encoding[:, :2*seq_len, :]
-
+        ## -------------------------------------------------------------------
         for i in range(self.num_layers):
             inputx_d = self.enc_layers[i](
                 inputx_d, 
@@ -160,16 +172,17 @@ class TransformerXLEncoderStack(tf.keras.Model):
                 padding_mask,
                 training,
             )
+        ## -------------------------------------------------------------------        
+        return inputx_d                                                     # (batch_size, input_seq_len, d_model)
+        ## -------------------------------------------------------------------
+##############################################################################################################
 
-        # (batch_size, input_seq_len, d_model)
-        return inputx
-## -------------------------------------------------------------------
 
-
-## -------------------------------------------------------------------
+##############################################################################################################
 class TransformerXLDecoderStack(tf.keras.Model):
-    def __init__(self, configs, **kwargs):
 
+    def __init__(self, configs, **kwargs):
+        ## -------------------------------------------------------------------
         super(TransformerXLDecoderStack, self).__init__(**kwargs)
         ## -------------------------------------------------------------------
         self.num_layers = int(configs['num_layers'])
@@ -201,18 +214,19 @@ class TransformerXLDecoderStack(tf.keras.Model):
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)
         ## -------------------------------------------------------------------
 
+
     def call(self, x, encoder_outputs, positional_encoding, look_ahead_mask, padding_mask=None, training=True):
+        ## -------------------------------------------------------------------
         x, memory_length = x
         seq_len = tf.shape(x)[1]
-
-        # (batch_size, input_seq_len, d_model)
-        outputx = self.embedding(x)
+        ## -------------------------------------------------------------------
+        outputx = self.embedding(x)                                         # (batch_size, input_seq_len, d_model)
         outputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         outputx = self.dropout(outputx, training=training)
-    
+        ## -------------------------------------------------------------------
         positional_encoding = tf.tile(tf.expand_dims(positional_encoding, axis=0), [10, 1, 1])
         positional_encoding = positional_encoding[:, :2*seq_len, :]
-
+        ## -------------------------------------------------------------------
         for i in range(self.num_layers):
             outputx, attention_weights = self.dec_layers[i](
                 outputx,
@@ -223,7 +237,7 @@ class TransformerXLDecoderStack(tf.keras.Model):
                 padding_mask,
                 training
             )
-
-        # (batch_size, output_seq_len, d_model)
-        return outputx, attention_weights
-## -------------------------------------------------------------------
+        ## -------------------------------------------------------------------
+        return outputx, attention_weights                                   # (batch_size, output_seq_len, d_model)
+        ## -------------------------------------------------------------------
+##############################################################################################################

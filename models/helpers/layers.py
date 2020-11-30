@@ -20,6 +20,7 @@ from .utils import  point_wise_feed_forward_network, \
 ## -------------------------------------------------------------------
 ##############################################################################################################
 class MultiHeadSelfAttention(tf.keras.layers.Layer):
+
     def __init__(self, d_model, num_heads):
         super(MultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
@@ -34,6 +35,7 @@ class MultiHeadSelfAttention(tf.keras.layers.Layer):
         self.wv = tf.keras.layers.Dense(d_model)
     
         self.dense = tf.keras.layers.Dense(d_model)
+
         
     def split_heads(self, x, batch_size):
         """Split the last dimension into (num_heads, depth).
@@ -41,6 +43,7 @@ class MultiHeadSelfAttention(tf.keras.layers.Layer):
         """
         x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
         return tf.transpose(x, perm=[0, 2, 1, 3])
+
 
     def call(self, v, k, q, mask):
         batch_size = tf.shape(q)[0]
@@ -598,6 +601,7 @@ class XLDecoderLayer(tf.keras.layers.Layer):
             units=d_model,
             name='RelativeBiasLayer-{}'.format(layer_id)
         )
+        #--------------------------------------------------------------------------------
         self.decoder_memory = Memory(
             memory_length, 
             segment_length, 
