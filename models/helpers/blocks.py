@@ -144,15 +144,12 @@ class TransformerXLEncoderStack(tf.keras.Model):
 
     def call(self, inputs, positional_encoding, padding_mask=None, training=True):
         x, memory_length = inputs
-        print(tf.shape(x))
         # (batch_size, input_seq_len, d_model)
         inputx = self.embedding(x)
-        print(tf.shape(inputx))
         inputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         inputx_d = self.dropout(inputx, training=training)
         seq_len = tf.shape(inputx_d)[1]
         positional_encoding = tf.tile(tf.expand_dims(positional_encoding, axis=0), [10, 1, 1])
-        print(tf.shape(positional_encoding))
         positional_encoding = positional_encoding[:, :2*seq_len, :]
 
         for i in range(self.num_layers):
@@ -160,7 +157,7 @@ class TransformerXLEncoderStack(tf.keras.Model):
                 inputx_d, 
                 positional_encoding,
                 memory_length,
-                mask,
+                padding_mask,
                 training,
             )
 
@@ -195,9 +192,9 @@ class TransformerXLDecoderStack(tf.keras.Model):
                 self.d_model, 
                 self.num_heads, 
                 self.dff, 
-                self.dropout_rate,
                 self.memory_length,
                 self.max_sequence_length, 
+                self.dropout_rate,
                 name = 'XLEncoderLayer-{}'.format(i + 1)
             ) for i in range(self.num_layers)
         ]
@@ -205,6 +202,7 @@ class TransformerXLDecoderStack(tf.keras.Model):
         ## -------------------------------------------------------------------
 
     def call(self, x, encoder_outputs, positional_encoding, look_ahead_mask, padding_mask=None, training=True):
+        x, memory_length = x
         seq_len = tf.shape(x)[1]
 
         # (batch_size, input_seq_len, d_model)
@@ -212,13 +210,15 @@ class TransformerXLDecoderStack(tf.keras.Model):
         outputx *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
         outputx = self.dropout(outputx, training=training)
     
-        positional_encoding = self.pos_encoding[:, :2*seq_len, :]
+        positional_encoding = tf.tile(tf.expand_dims(positional_encoding, axis=0), [10, 1, 1])
+        positional_encoding = positional_encoding[:, :2*seq_len, :]
 
         for i in range(self.num_layers):
             outputx, attention_weights = self.dec_layers[i](
                 outputx,
-                encoder_outputs 
+                encoder_outputs,
                 positional_encoding,
+                memory_length,
                 look_ahead_mask,
                 padding_mask,
                 training
