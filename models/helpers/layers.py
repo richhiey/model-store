@@ -6,124 +6,6 @@ import tensorflow.keras.backend as K
 import tensorflow as tf
 from .utils import  point_wise_feed_forward_network, \
                     scaled_dot_product_attention, \
-                    create_look_ahead_mask, \
-                    create_padding_mask
-##############################################################################################################
-
-
-##############################################################################################################
-## -------------------------------------------------------------------
-## TENSORFLOW LAYERS FOR VANILLA TRANSFORMER
-## -------------------------------------------------------------------
-## Transformer paper - https://arxiv.org/abs/1706.03762
-## Code reference - https://www.tensorflow.org/tutorials/text/transformer
-## -------------------------------------------------------------------
-##############################################################################################################
-class MultiHeadSelfAttention(tf.keras.layers.Layer):
-
-    def __init__(self, d_model, num_heads):
-        super(MultiHeadSelfAttention, self).__init__()
-        self.num_heads = num_heads
-        self.d_model = d_model
-    
-        assert d_model % self.num_heads == 0
-    
-        self.depth = d_model // self.num_heads
-    
-        self.wq = tf.keras.layers.Dense(d_model)
-        self.wk = tf.keras.layers.Dense(d_model)
-        self.wv = tf.keras.layers.Dense(d_model)
-    
-        self.dense = tf.keras.layers.Dense(d_model)
-
-        
-    def split_heads(self, x, batch_size):
-        """Split the last dimension into (num_heads, depth).
-        Transpose the result such that the shape is (batch_size, num_heads, seq_len, depth)
-        """
-        x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
-        return tf.transpose(x, perm=[0, 2, 1, 3])
-
-
-    def call(self, v, k, q, mask):
-        batch_size = tf.shape(q)[0]
-
-        q = self.wq(q)  # (batch_size, seq_len, d_model)
-        k = self.wk(k)  # (batch_size, seq_len, d_model)
-        v = self.wv(v)  # (batch_size, seq_len, d_model)
-        q = self.split_heads(q, batch_size)  # (batch_size, num_heads, seq_len_q, depth)
-        k = self.split_heads(k, batch_size)  # (batch_size, num_heads, seq_len_k, depth)
-        v = self.split_heads(v, batch_size)  # (batch_size, num_heads, seq_len_v, depth)
-        # scaled_attention.shape == (batch_size, num_heads, seq_len_q, depth)
-        # attention_weights.shape == (batch_size, num_heads, seq_len_q, seq_len_k)
-        scaled_attention, attention_weights = scaled_dot_product_attention(
-            q, k, v, mask
-        )
-        # (batch_size, seq_len_q, num_heads, depth)        
-        scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])
-        # (batch_size, seq_len_q, d_model)
-        concat_attention = tf.reshape(
-            scaled_attention, 
-            (batch_size, -1, self.d_model)
-        )
-        # (batch_size, seq_len_q, d_model)
-        output = self.dense(concat_attention)
-        return output, attention_weights
-##############################################################################################################
-
-
-##############################################################################################################
-class EncoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
-        super(EncoderLayer, self).__init__()
-
-        self.mha = MultiHeadSelfAttention(d_model, num_heads)
-        self.ffn = point_wise_feed_forward_network(d_model, dff)
-
-        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
-
-    def call(self, x, training, mask):
-
-        attn_output, _ = self.mha(x, x, x, mask)  # (batch_size, input_seq_len, d_model)
-        attn_output = self.dropout1(attn_output, training=training)
-        out1 = self.layernorm1(x + attn_output)  # (batch_size, input_seq_len, d_model)
-
-        ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model)
-        ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
-
-        return out2
-##############################################################################################################
-
-
-##############################################################################################################
-class DecoderLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
-        super(DecoderLayer, self).__init__()
-
-        self.mha1 = MultiHeadSelfAttention(d_model, num_heads)
-        self.ffn = point_wise_feed_forward_network(d_model, dff)
-
-        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
-
-        self.dropout1 = tf.keras.layers.Dropout(rate)
-        self.dropout2 = tf.keras.layers.Dropout(rate)
-
-    def call(self, x, training, look_ahead_mask, padding_mask):
-        # enc_output.shape == (batch_size, input_seq_len, d_model)
-        attn1, attn_weights_block1 = self.mha1(x, x, x, look_ahead_mask)  # (batch_size, target_seq_len, d_model)
-        attn1 = tf.expand_dims(attn1, axis=1)
-        attn1 = self.dropout1(attn1, training=training)
-        out1 = self.layernorm1(attn1 + x)
-        ffn_output = self.ffn(out1)  # (batch_size, target_seq_len, d_model)
-        ffn_output = self.dropout2(ffn_output, training=training)
-        out2 = self.layernorm2(ffn_output + out1)  # (batch_size, target_seq_len, d_model)
-        return out2, attn_weights_block1
 ##############################################################################################################
 
 
@@ -372,7 +254,7 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return input_shape[0]
 
-    def call(self, query, key_value, others, mask=None, training=True):
+    def call(self, query, key_value, others, padding_mask=None, masked_attention = False, training=True):
         relatives, memories, bias_context, bias_relative = others
         w_q = K.dot(query, self.kernel_q)                     # (batch, seq_len, units)
         w_kv = K.dot(key_value, self.kernel_kv)               # (batch, prev_len + seq_len, units * 2)
@@ -403,10 +285,12 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
         att = (a_context + a_relative) / K.sqrt(K.constant(self.units_head, dtype=K.floatx()))
         exp = K.exp(att - K.max(att, axis=-1, keepdims=True))
 
-        q_len, k_len = K.shape(w_q)[1], K.shape(w_k)[1]
-        indices = K.expand_dims(K.arange(0, k_len), axis=0)
-        upper = K.expand_dims(K.arange(k_len - q_len, k_len), axis=-1)
-        exp *= K.expand_dims(K.cast(indices <= upper, K.floatx()), axis=0)
+        # Create look ahead mask only during decoder pass
+        if masked_attention:
+            q_len, k_len = K.shape(w_q)[1], K.shape(w_k)[1]
+            indices = K.expand_dims(K.arange(0, k_len), axis=0)
+            upper = K.expand_dims(K.arange(k_len - q_len, k_len), axis=-1)
+            exp *= K.expand_dims(K.cast(indices <= upper, K.floatx()), axis=0)
 
         if mask is not None and mask[0] is not None:            
             mask = K.cast(mask[0], K.floatx())
@@ -561,7 +445,10 @@ class XLEncoderLayer(tf.keras.layers.Layer):
         mha = self.multi_headed_attention(
             embeddings,
             full,
-            [positional_encoding, last_memory, context_bias, relative_bias]
+            [positional_encoding, last_memory, context_bias, relative_bias],
+            padding_mask=padding_mask,
+            masked_attention=False,
+            training=training
         )
         mha_d = self.dropout1(mha, training = training)
         mha_d = self.layernorm1(mha_d + embeddings)
@@ -618,7 +505,7 @@ class XLDecoderLayer(tf.keras.layers.Layer):
 
 
     def call(self, embeddings, encoder_outputs, positional_encoding, memory_length,
-                look_ahead_mask, padding_mask, training):
+                padding_mask, training):
         #--------------------------------------------------------------------------------
         decoder_last_memory = self.decoder_memory([embeddings, memory_length])
         decoder_context_bias, decoder_relative_bias = self.decoder_relative_position_bias(decoder_last_memory)
@@ -632,7 +519,9 @@ class XLDecoderLayer(tf.keras.layers.Layer):
             embeddings,
             decoder_full,
             [positional_encoding, decoder_last_memory, decoder_context_bias, decoder_relative_bias],
-            look_ahead_mask
+            padding_mask=padding_mask,
+            masked_attention=True,
+            training=training
         )
         mmha_d = self.dropout1(mmha, training = training)
         mmha_o = self.layernorm1(mmha_d + embeddings)
@@ -651,7 +540,10 @@ class XLDecoderLayer(tf.keras.layers.Layer):
         eda = self.encoder_decoder_attention(
             mmha_o,
             encoder_decoder_full,
-            [positional_encoding, encoder_decoder_last_memory, e_d_context_bias, e_d_relative_bias]
+            [positional_encoding, encoder_decoder_last_memory, e_d_context_bias, e_d_relative_bias],
+            padding_mask=padding_mask,
+            masked_attention=False,
+            training=training
         )
         eda_d = self.dropout1(eda, training = training)
         eda_o = self.layernorm1(eda_d + mmha_o)

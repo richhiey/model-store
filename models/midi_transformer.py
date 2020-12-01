@@ -12,9 +12,9 @@ from .helpers.utils import  positional_encoding, \
 
 
 class MIDITransformer(tf.keras.Model):
-## -------------------------------------------------------------------
-    def __init__(self, config_path, model_path, **kwargs):
 
+    def __init__(self, config_path, model_path, **kwargs):
+        ## -------------------------------------------------------------------
         super(MIDITransformer, self).__init__(**kwargs)
         ## -------------------------------------------------------------------
         self.model_path = model_path
@@ -103,30 +103,49 @@ class MIDITransformer(tf.keras.Model):
         ## -------------------------------------------------------------------
 
 
-    def run_step(self, inputs, targets, pe, look_ahead_mask, memory_length):
+    def run_step(self, inputs, targets, positional_encoding, memory_length, 
+                    input_padding_mask, output_padding_mask, training=True):
+        ## -------------------------------------------------------------------
         input_embeddings = self.input_embedding_layer(inputs)
-        encoder_output = self.encoder_stack([input_embeddings, memory_length], pe)
-        print('Encoder output - ')
-        print(tf.shape(encoder_output))
-        print('Decoder output - ')
+        ## -------------------------------------------------------------------
+        encoder_output = self.encoder_stack(
+            [input_embeddings, memory_length],
+            positional_encoding,
+            training,
+            input_padding_mask
+        )
+        ## -------------------------------------------------------------------
         output_embeddings = self.output_embedding_layer(targets)
-        decoder_output, attn_weights = self.decoder_stack([output_embeddings, memory_length], encoder_output, pe, look_ahead_mask)
-        print(tf.shape(decoder_output))
+        decoder_output, attn_weights = self.decoder_stack(
+            [output_embeddings, memory_length],
+            encoder_output,
+            positional_encoding,
+            training,
+            output_padding_mask
+        )
+        ## -------------------------------------------------------------------
         return decoder_output, attn_weights
+        ## -------------------------------------------------------------------
 
     
-    def call(self, inputs, targets, positional_encoding, look_ahead_mask, memory_length):
-        return self.run_step(inputs, targets, positional_encoding, look_ahead_mask, memory_length)
+    def call(self, inputs, targets, positional_encoding, memory_length):
+        ## -------------------------------------------------------------------
+        return self.run_step(inputs, targets, positional_encoding, memory_length)
+        ## -------------------------------------------------------------------
 
 
     def reset_model_state(self):
+        ## -------------------------------------------------------------------
         self.encoder_stack.reset_states()
         self.decoder_stack.reset_states()
+        ## -------------------------------------------------------------------
 
 
     def save_model_checkpoint(self):
+        ## -------------------------------------------------------------------
         encoder_save_path = self.encoder_ckpt_manager.save()
         decoder_save_path = self.decoder_ckpt_manager.save()
+        ## -------------------------------------------------------------------
         print(
             "Saved checkpoint for step {}: {}, {}".format(
                 int(self.ckpt.step),
@@ -134,6 +153,7 @@ class MIDITransformer(tf.keras.Model):
                 decoder_save_path
             )
         )
+        ## -------------------------------------------------------------------
 
 
     def calculate_loss(self, outputs,  targets, weighted = False):
@@ -147,48 +167,69 @@ class MIDITransformer(tf.keras.Model):
         return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
 
 
-    def train_step(self, inputs, targets, look_ahead_mask):
+    def train_step(self, inputs, targets, input_padding_mask=None, output_padding_mask=None):
+        ## -------------------------------------------------------------------
         with tf.GradientTape() as tape:
             outputs, attn_weights = run_step(
                 inputs, 
                 targets, 
                 self.pos_encoding, 
-                look_ahead_mask, 
-                tf.constant(self.max_sequence_length)
+                tf.constant(self.max_sequence_length),
+                input_padding_mask,
+                output_padding_mask
             )
-            targets = tf.reshape(tf.sparse.to_dense(targets), (-1, 255))
+            targets = tf.one_hot(targets)
             loss_value = self.calculate_loss(
                 outputs = outputs,
                 targets = targets
             )
-            print(loss_value)
-        gradients = tape.gradient(loss_value, self.model.trainable_variables)
-        gradients = [(tf.clip_by_norm(grad, 3.0)) for grad in gradients]
-        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        ## -------------------------------------------------------------------
+        encoder_gradients = tape.gradient(
+            loss_value, self.encoder_stack.trainable_variables
+        )
+        decoder_gradients = tape.gradient(
+            loss_value, self.decoder_stack.trainable_variables
+        )
+        ## -------------------------------------------------------------------
+        self.encoder_optimizer.apply_gradients(
+            zip(encoder_gradients, self.encoder_stack.trainable_variables)
+        )
+        self.decoder_optimizer.apply_gradients(
+            zip(decoder_gradients, self.decoder_stack.trainable_variables)
+        )
+        ## -------------------------------------------------------------------
         return loss_value, outputs, attn_weights
+        ## -------------------------------------------------------------------
 
 
     def train(self, dataset, train_configs):
-        
-        look_ahead_mask = create_look_ahead_mask(self.max_sequence_length)
-
+        ## -------------------------------------------------------------------
         for epoch in range(configs['num_epochs']):
-            # Training loop
+            ## -------------------------------------------------------------------
             for i, song in enumerate(dataset):
-                # Optimize the model
+                ## -------------------------------------------------------------------
                 self.reset_model_state()
-
+                ## -------------------------------------------------------------------
                 inputs = tf.split(song['MELODY'], num_or_size_splits=self.max_sequence_length, axis=1)
                 outputs = tf.split(song['PIANO'], num_or_size_splits=self.max_sequence_length, axis=1)
-
-                for j, x in enumerate(inputs):
-                    loss_value, outputs, attn_weights = self.train_step(x, outputs[j], look_ahead_mask)
+                ## -------------------------------------------------------------------
+                for j, input_midi in enumerate(inputs):
+                    # Create padding mask for inputs and outputs if  
+                    input_padding_mask = None
+                    output_padding_mask = None
+                    loss_value, outputs, attn_weights = self.train_step(
+                        input_midi,
+                        outputs[j],
+                        input_padding_mask,
+                        output_padding_mask
+                    )
                     print(loss_value)
-
+                ## -------------------------------------------------------------------
                 self.encoder_ckpt.step.assign_add(1)
                 self.decoder_ckpt.step.assign_add(1)
 
                 if i % 100 is 0:
                     self.save_model_checkpoint()
-            
+                ## -------------------------------------------------------------------
             self.save_model_checkpoint()
+            ## -------------------------------------------------------------------
