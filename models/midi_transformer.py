@@ -47,7 +47,12 @@ class MIDITransformer(tf.keras.Model):
         self.input_embedding_layer = tf.keras.layers.Embedding(
             self.input_vocab_size,
             self.d_model,
-            name='midi_embedding'
+            name='input_midi_embedding'
+        )
+        self.output_embedding_layer = tf.keras.layers.Embedding(
+            self.target_vocab_size,
+            self.d_model,
+            name='output_midi_embedding'
         )
         self.encoder_stack = TransformerXLEncoderStack(self.configs['encoder'])
         self.decoder_stack = TransformerXLDecoderStack(self.configs['decoder'])
@@ -97,18 +102,93 @@ class MIDITransformer(tf.keras.Model):
         self.file_writer.set_as_default()
         ## -------------------------------------------------------------------
 
+
     def run_step(self, inputs, targets, pe, look_ahead_mask, memory_length):
-        embeddings = self.input_embedding_layer(inputs)
-        encoder_output = self.encoder_stack([embeddings, memory_length], pe)
+        input_embeddings = self.input_embedding_layer(inputs)
+        encoder_output = self.encoder_stack([input_embeddings, memory_length], pe)
         print('Encoder output - ')
         print(tf.shape(encoder_output))
         print('Decoder output - ')
-        decoder_output, attn_weights = self.decoder_stack([targets, memory_length], encoder_output, pe, look_ahead_mask)
+        output_embeddings = self.output_embedding_layer(targets)
+        decoder_output, attn_weights = self.decoder_stack([output_embeddings, memory_length], encoder_output, pe, look_ahead_mask)
         print(tf.shape(decoder_output))
         return decoder_output, attn_weights
 
+    
     def call(self, inputs, targets, positional_encoding, look_ahead_mask, memory_length):
         return self.run_step(inputs, targets, positional_encoding, look_ahead_mask, memory_length)
 
+
+    def reset_model_state(self):
+        self.encoder_stack.reset_states()
+        self.decoder_stack.reset_states()
+
+
+    def save_model_checkpoint(self):
+        encoder_save_path = self.encoder_ckpt_manager.save()
+        decoder_save_path = self.decoder_ckpt_manager.save()
+        print(
+            "Saved checkpoint for step {}: {}, {}".format(
+                int(self.ckpt.step),
+                encoder_save_path,
+                decoder_save_path
+            )
+        )
+
+
+    def calculate_loss(self, outputs,  targets, weighted = False):
+        mask = tf.math.logical_not(tf.math.equal(outputs, 0))
+        loss_ = self.cross_entropy(
+            y_pred = outputs, 
+            y_true = targets
+        )
+        mask = tf.cast(mask, dtype=loss_.dtype)
+        loss_ *= mask
+        return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
+
+
+    def train_step(self, inputs, targets, look_ahead_mask):
+        with tf.GradientTape() as tape:
+            outputs, attn_weights = run_step(
+                inputs, 
+                targets, 
+                self.pos_encoding, 
+                look_ahead_mask, 
+                tf.constant(self.max_sequence_length)
+            )
+            targets = tf.reshape(tf.sparse.to_dense(targets), (-1, 255))
+            loss_value = self.calculate_loss(
+                outputs = outputs,
+                targets = targets
+            )
+            print(loss_value)
+        gradients = tape.gradient(loss_value, self.model.trainable_variables)
+        gradients = [(tf.clip_by_norm(grad, 3.0)) for grad in gradients]
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        return loss_value, outputs, attn_weights
+
+
     def train(self, dataset, train_configs):
-        pass
+        
+        look_ahead_mask = create_look_ahead_mask(self.max_sequence_length)
+
+        for epoch in range(configs['num_epochs']):
+            # Training loop
+            for i, song in enumerate(dataset):
+                # Optimize the model
+                self.reset_model_state()
+
+                inputs = tf.split(song['MELODY'], num_or_size_splits=self.max_sequence_length, axis=1)
+                outputs = tf.split(song['PIANO'], num_or_size_splits=self.max_sequence_length, axis=1)
+
+                for j, x in enumerate(inputs):
+                    loss_value, outputs, attn_weights = self.train_step(x, outputs[j], look_ahead_mask)
+                    print(loss_value)
+
+                self.encoder_ckpt.step.assign_add(1)
+                self.decoder_ckpt.step.assign_add(1)
+
+                if i % 100 is 0:
+                    self.save_model_checkpoint()
+            
+            self.save_model_checkpoint()
