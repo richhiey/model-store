@@ -150,7 +150,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=10, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=30, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -408,7 +408,7 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
         upper = K.expand_dims(K.arange(k_len - q_len, k_len), axis=-1)
         exp *= K.expand_dims(K.cast(indices <= upper, K.floatx()), axis=0)
 
-        if mask is not None and mask[0] is not None:
+        if mask is not None and mask[0] is not None:            
             mask = K.cast(mask[0], K.floatx())
             mask = K.concatenate([K.ones_like(memories[:, :, 0]), mask], axis=1)
             exp *= K.expand_dims(self._reshape_mask(mask), axis=1)

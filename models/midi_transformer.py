@@ -3,10 +3,13 @@
 import os
 import json
 import tensorflow as tf
+
+from datetime import datetime
 from .helpers.blocks import TransformerXLEncoderStack, \
                             TransformerXLDecoderStack
 from .helpers.utils import  positional_encoding, \
                             create_look_ahead_mask
+
 
 class MIDITransformer(tf.keras.Model):
 ## -------------------------------------------------------------------
@@ -22,31 +25,66 @@ class MIDITransformer(tf.keras.Model):
         with open(self.config_path) as json_file: 
             self.configs = json.loads(json_file.read())
         ## -------------------------------------------------------------------
+        self.saved_model_dir = os.path.join(self.model_path, 'MIDI_Transformer')
+        self.initial_learning_rate = 0.001
+        self.end_learning_rate = 0.00001
+        self.decay_steps = 100000.0
+        self.decay_rate = 0.
         self.max_sequence_length = int(self.configs['encoder']['max_sequence_length'])
         self.d_model = int(self.configs['encoder']['d_model'])
+        self.batch_size = int(self.configs['batch_size'])
+        self.input_vocab_size = int(self.configs['encoder']['input_vocab_size'])
+
+        learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
+          self.initial_learning_rate, self.decay_steps, self.end_learning_rate, power=3
+        )
+        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        ## -------------------------------------------------------------------
         self.pos_encoding = positional_encoding(
-            self.max_sequence_length,
+            2 * self.max_sequence_length,
             self.d_model
         )
-        self.encoder_stack = TransformerXLEncoderStack(self.configs['encoder'], dynamic=True)
-        self.decoder_stack = TransformerXLDecoderStack(self.configs['decoder'], dynamic=True)
-        self.model = self.__create_model__()
-        ## -------------------------------------------------------------------
-        self.ckpt = tf.train.Checkpoint(
-            step = tf.Variable(1),
-            optimizer = self.optimizer,
-            net = self.model
+        self.input_embedding_layer = tf.keras.layers.Embedding(
+            self.input_vocab_size,
+            self.d_model,
+            name='midi_embedding'
         )
-        self.ckpt_manager = tf.train.CheckpointManager(
-            self.ckpt, 
-            os.path.join(self.model_path, 'ckpt'),
+        self.encoder_stack = TransformerXLEncoderStack(self.configs['encoder'])
+        self.decoder_stack = TransformerXLDecoderStack(self.configs['decoder'])
+        self.encoder_optimizer = tf.keras.optimizers.Adam(learning_rate_fn)
+        self.decoder_optimizer = tf.keras.optimizers.Adam(learning_rate_fn)
+        ## -------------------------------------------------------------------
+        self.encoder_ckpt = tf.train.Checkpoint(
+            step = tf.Variable(1),
+            optimizer = self.encoder_optimizer,
+            net = self.encoder_stack
+        )
+        self.encoder_ckpt_manager = tf.train.CheckpointManager(
+            self.encoder_ckpt, 
+            os.path.join(self.model_path, 'encoder', 'ckpt'),
             max_to_keep = 3
         )
-        self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
-        if self.ckpt_manager.latest_checkpoint:
-            print("Restored from {}".format(self.ckpt_manager.latest_checkpoint))
+        self.encoder_ckpt.restore(self.encoder_ckpt_manager.latest_checkpoint)
+        if self.encoder_ckpt_manager.latest_checkpoint:
+            print("Restored Encoder from {}".format(self.encoder_ckpt_manager.latest_checkpoint))
         else:
-            print("Initializing from scratch.")
+            print("Initializing Encoder from scratch.")
+        ## -------------------------------------------------------------------
+        self.decoder_ckpt = tf.train.Checkpoint(
+            step = tf.Variable(1),
+            optimizer = self.decoder_optimizer,
+            net = self.decoder_stack
+        )
+        self.decoder_ckpt_manager = tf.train.CheckpointManager(
+            self.decoder_ckpt, 
+            os.path.join(self.model_path, 'decoder', 'ckpt'),
+            max_to_keep = 3
+        )
+        self.decoder_ckpt.restore(self.decoder_ckpt_manager.latest_checkpoint)
+        if self.decoder_ckpt_manager.latest_checkpoint:
+            print("Restored Decoder from {}".format(self.decoder_ckpt_manager.latest_checkpoint))
+        else:
+            print("Initializing Decoder from scratch.")            
         ## -------------------------------------------------------------------
         self.tensorboard_logdir = os.path.join(
             self.model_path,
@@ -58,28 +96,19 @@ class MIDITransformer(tf.keras.Model):
         )
         self.file_writer.set_as_default()
         ## -------------------------------------------------------------------
-        saved_model_dir = os.path.join(self.model_path, 'MIDI_Transformer')
-        end_learning_rate = 0.00001
-        decay_steps = 100000.0
-        decay_rate = 0.
-        learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
-          initial_learning_rate, decay_steps, end_learning_rate, power=3
-        )
-        self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate_fn)
-        ## -------------------------------------------------------------------
 
+    def run_step(self, inputs, targets, pe, look_ahead_mask, memory_length):
+        embeddings = self.input_embedding_layer(inputs)
+        encoder_output = self.encoder_stack([embeddings, memory_length], pe)
+        print('Encoder output - ')
+        print(tf.shape(encoder_output))
+        print('Decoder output - ')
+        decoder_output, attn_weights = self.decoder_stack([targets, memory_length], encoder_output, pe, look_ahead_mask)
+        print(tf.shape(decoder_output))
+        return decoder_output, attn_weights
 
-    def __create_model__(self):
-        midi_input = tf.keras.layers.Input(
-            batch_input_shape = (10, self.max_sequence_length)
-        )
-        memory_length_input = tf.keras.layers.Input(
-            shape=(1,),
-            name='Input-Memory-Length'
-        )
-        midi_embedding = self.encoder_stack(midi_input, self.pos_encoding)
-        look_ahead_mask = create_look_ahead_mask(self.max_sequence_length)
-        midi_output = self.decoder_stack(midi_embedding, self.pos_encoding, look_ahead_mask)
-        #model = tf.keras.Model(inputs = [midi_input, memory_length_input], output = midi_output)
-        #return model
+    def call(self, inputs, targets, positional_encoding, look_ahead_mask, memory_length):
+        return self.run_step(inputs, targets, positional_encoding, look_ahead_mask, memory_length)
+
+    def train(self, dataset, train_configs):
+        pass
