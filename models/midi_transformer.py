@@ -19,7 +19,7 @@ class MIDITransformer(tf.keras.Model):
         ## -------------------------------------------------------------------
         self.model_path = model_path
         if os.path.exists(self.model_path):
-            os.makedirs(self.model_path)
+            os.makedirs(self.model_path, exist_ok=True)
         ## -------------------------------------------------------------------
         self.config_path = config_path
         with open(self.config_path) as json_file: 
