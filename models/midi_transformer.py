@@ -184,24 +184,27 @@ class MIDITransformer(tf.keras.Model):
 
     def train_step(self, inputs, targets):
         ## -------------------------------------------------------------------
-        inp_pad_size = int(tf.shape(inputs)[1] / self.max_sequence_length)
         if (tf.shape(inputs)[1] % self.max_sequence_length):
+            inp_pad_size = int(tf.shape(inputs)[1] / self.max_sequence_length)
             inp_pad_size = (inp_pad_size + 1) * self.max_sequence_length - tf.shape(inputs)[1]
-        padded_inputs = tf.pad(inputs, [[0, 0],[0, inp_pad_size]])
+            inputs = tf.pad(inputs, [[0, 0],[0, inp_pad_size]])
 
-        tar_pad_size = int(tf.shape(targets)[1] / self.max_sequence_length)
         if (tf.shape(targets)[1] % self.max_sequence_length):
+            tar_pad_size = int(tf.shape(targets)[1] / self.max_sequence_length)
             tar_pad_size = (tar_pad_size + 1) * self.max_sequence_length - tf.shape(targets)[1]
-        padded_targets = tf.pad(targets, [[0, 0],[0, tar_pad_size]])
+            targets = tf.pad(targets, [[0, 0],[0, tar_pad_size]])
 
+        print(tf.shape(inputs))
+        print(tf.shape(targets))
+        print('----- Train step starts-----')
         with tf.GradientTape() as tape:
             outputs, attn_weights = self.run_step(
-                padded_inputs, 
-                padded_targets, 
+                inputs, 
+                targets, 
                 self.pos_encoding, 
                 tf.constant(self.max_sequence_length),
             )
-            loss_value = tf.reduce_sum(self.calculate_loss(outputs = outputs, targets = padded_targets))
+            loss_value = tf.reduce_sum(self.calculate_loss(outputs = outputs, targets = targets))
         all_vars = [self.encoder_stack.trainable_variables, self.decoder_stack.trainable_variables]
         flat_list_vars = [item for sublist in all_vars for item in sublist]
         ## -------------------------------------------------------------------

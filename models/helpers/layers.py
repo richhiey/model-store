@@ -411,7 +411,7 @@ class XLEncoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, memory_length, segment_length,
                     rate=0.1, layer_id = 1, **kwargs):
         #--------------------------------------------------------------------------------
-        super(XLEncoderLayer, self).__init__()
+        super(XLEncoderLayer, self).__init__(**kwargs)
         #--------------------------------------------------------------------------------
         self.multi_headed_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.ffn = point_wise_feed_forward_network(d_model, dff)
@@ -443,6 +443,9 @@ class XLEncoderLayer(tf.keras.layers.Layer):
         # (batch, prev_len + seq_len, units)
         full = K.concatenate([last_memory, embeddings], axis=1)
         #--------------------------------------------------------------------------------
+        print(tf.shape(last_memory))
+        print(tf.shape(full))
+        print('-------')
         mha = self.multi_headed_attention(
             embeddings,
             full,
@@ -469,7 +472,7 @@ class XLDecoderLayer(tf.keras.layers.Layer):
     def __init__(self, d_model, num_heads, dff, memory_length, segment_length, 
                     rate=0.1, layer_id = 1, **kwargs):
         #--------------------------------------------------------------------------------        
-        super(XLDecoderLayer, self).__init__()
+        super(XLDecoderLayer, self).__init__(**kwargs)
         #--------------------------------------------------------------------------------
         self.masked_multi_headed_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.encoder_decoder_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
