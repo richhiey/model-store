@@ -110,8 +110,6 @@ class MIDITransformer(tf.keras.Model):
         positional_encoding = tf.tile(positional_encoding, [tf.shape(padded_inputs)[0], 1, 1])
         self.reset_model_state()
 
-        print('Encoder part')
-        print('-------------------------------------------------------------------')
         for x in tf.split(padded_inputs, num_or_size_splits=int(tf.shape(padded_inputs)[1]/self.max_sequence_length), axis=1):
             input_embeddings = self.input_embedding_layer(x)
             ## -------------------------------------------------------------------
@@ -122,8 +120,6 @@ class MIDITransformer(tf.keras.Model):
                 create_padding_mask(x)
             )
         ## -------------------------------------------------------------------
-        print('Decoder part')
-        print('-------------------------------------------------------------------')
         decoder_outputs = []
         for y in tf.split(padded_targets, num_or_size_splits=int(tf.shape(padded_targets)[1]/self.max_sequence_length), axis=1):
             output_embeddings = self.output_embedding_layer(y)
@@ -194,9 +190,6 @@ class MIDITransformer(tf.keras.Model):
             tar_pad_size = (tar_pad_size + 1) * self.max_sequence_length - tf.shape(targets)[1]
             targets = tf.pad(targets, [[0, 0],[0, tar_pad_size]])
 
-        print(tf.shape(inputs))
-        print(tf.shape(targets))
-        print('----- Train step starts-----')
         with tf.GradientTape() as tape:
             outputs, attn_weights = self.run_step(
                 inputs, 
@@ -204,19 +197,15 @@ class MIDITransformer(tf.keras.Model):
                 self.pos_encoding, 
                 tf.constant(self.max_sequence_length),
             )
-            loss_value = tf.reduce_sum(self.calculate_loss(outputs = outputs, targets = targets))
+            loss_value = self.calculate_loss(outputs = outputs, targets = targets)
         all_vars = [self.encoder_stack.trainable_variables, self.decoder_stack.trainable_variables]
         flat_list_vars = [item for sublist in all_vars for item in sublist]
         ## -------------------------------------------------------------------
         gradients = tape.gradient(loss_value, flat_list_vars)
-        #print(gradients)
         ## -------------------------------------------------------------------
         self.encoder_optimizer.apply_gradients(
             zip(gradients, flat_list_vars)
         )
-        #self.decoder_optimizer.apply_gradients(
-        #    zip(gradients, )
-        #)
         ## -------------------------------------------------------------------
         return loss_value, outputs, attn_weights
         ## -------------------------------------------------------------------
@@ -234,7 +223,7 @@ class MIDITransformer(tf.keras.Model):
                 rhythm = tf.sparse.to_dense(song['rhythm'])
                 ## -------------------------------------------------------------------
                 loss_value, outputs, attn_weights = self.train_step(melody, rhythm)
-                print(loss_value)
+                print('Loss (' + str(i) + ') - ' + str(loss_value))
                 ## -------------------------------------------------------------------
                 tf.summary.scalar('Cross Entropy Loss', loss_value, step=int(self.encoder_ckpt.step))
                 self.encoder_ckpt.step.assign_add(1)

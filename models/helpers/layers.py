@@ -443,9 +443,6 @@ class XLEncoderLayer(tf.keras.layers.Layer):
         # (batch, prev_len + seq_len, units)
         full = K.concatenate([last_memory, embeddings], axis=1)
         #--------------------------------------------------------------------------------
-        print(tf.shape(last_memory))
-        print(tf.shape(full))
-        print('-------')
         mha = self.multi_headed_attention(
             embeddings,
             full,
