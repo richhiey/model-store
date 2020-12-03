@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow.keras.backend as K
 import tensorflow as tf
 from .utils import  point_wise_feed_forward_network, \
-                    scaled_dot_product_attention, \
+                    scaled_dot_product_attention
 ##############################################################################################################
 
 
@@ -254,7 +254,7 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return input_shape[0]
 
-    def call(self, query, key_value, others, padding_mask=None, masked_attention = False, training=True):
+    def call(self, query, key_value, others, padding_mask=None, training=True, masked_attention = False):
         relatives, memories, bias_context, bias_relative = others
         w_q = K.dot(query, self.kernel_q)                     # (batch, seq_len, units)
         w_kv = K.dot(key_value, self.kernel_kv)               # (batch, prev_len + seq_len, units * 2)
@@ -292,10 +292,11 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
             upper = K.expand_dims(K.arange(k_len - q_len, k_len), axis=-1)
             exp *= K.expand_dims(K.cast(indices <= upper, K.floatx()), axis=0)
 
-        if mask is not None and mask[0] is not None:            
-            mask = K.cast(mask[0], K.floatx())
-            mask = K.concatenate([K.ones_like(memories[:, :, 0]), mask], axis=1)
-            exp *= K.expand_dims(self._reshape_mask(mask), axis=1)
+        if padding_mask is not None and padding_mask[0] is not None:  
+            padding_mask = tf.squeeze(padding_mask)
+            padding_mask = K.cast(padding_mask[0], K.floatx())
+            padding_mask = K.concatenate([K.ones_like(memories[:, :, 0]), padding_mask], axis=1)
+            exp *= K.expand_dims(self._reshape_mask(padding_mask), axis=1)
 
         att = exp / K.sum(exp, axis=-1, keepdims=True)
         if self.att_drop_layer is not None:
