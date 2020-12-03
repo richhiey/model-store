@@ -184,12 +184,15 @@ class MIDITransformer(tf.keras.Model):
             inp_pad_size = int(tf.shape(inputs)[1] / self.max_sequence_length)
             inp_pad_size = (inp_pad_size + 1) * self.max_sequence_length - tf.shape(inputs)[1]
             inputs = tf.pad(inputs, [[0, 0],[0, inp_pad_size]])
-
+        ## -------------------------------------------------------------------
         if (tf.shape(targets)[1] % self.max_sequence_length):
             tar_pad_size = int(tf.shape(targets)[1] / self.max_sequence_length)
             tar_pad_size = (tar_pad_size + 1) * self.max_sequence_length - tf.shape(targets)[1]
             targets = tf.pad(targets, [[0, 0],[0, tar_pad_size]])
-
+        ## -------------------------------------------------------------------
+        all_vars = [self.encoder_stack.trainable_variables, self.decoder_stack.trainable_variables]
+        flat_list_vars = [item for sublist in all_vars for item in sublist]
+        ## -------------------------------------------------------------------
         with tf.GradientTape() as tape:
             outputs, attn_weights = self.run_step(
                 inputs, 
@@ -198,14 +201,9 @@ class MIDITransformer(tf.keras.Model):
                 tf.constant(self.max_sequence_length),
             )
             loss_value = self.calculate_loss(outputs = outputs, targets = targets)
-        all_vars = [self.encoder_stack.trainable_variables, self.decoder_stack.trainable_variables]
-        flat_list_vars = [item for sublist in all_vars for item in sublist]
+            gradients = tape.gradient(loss_value, flat_list_vars)
         ## -------------------------------------------------------------------
-        gradients = tape.gradient(loss_value, flat_list_vars)
-        ## -------------------------------------------------------------------
-        self.encoder_optimizer.apply_gradients(
-            zip(gradients, flat_list_vars)
-        )
+        self.encoder_optimizer.apply_gradients(zip(gradients, flat_list_vars))
         ## -------------------------------------------------------------------
         return loss_value, outputs, attn_weights
         ## -------------------------------------------------------------------
