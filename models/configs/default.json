@@ -1,14 +1,18 @@
 {
         "task_name": "music_generation",
-        "create_encoder": "False",
+        "create_encoder": "",
         "create_decoder": "True",
 
-        "num_layers": "6",
-        "max_sequence_length": "256",
-        "d_model": "256",
-        "batch_size": "2",
         "vocab_size": "389",
+        "max_sequence_length": "256",
         "memory_length": "256",
+
+        "num_layers": "6",
+        "d_model": "256",
+        "num_heads": "4",
+        "dff": "128",
+
+        "batch_size": "2",
         "initial_learning_rate": "0.001",
         "end_learning_rate": "0.00001",
         "decay_steps": "1000"

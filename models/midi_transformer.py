@@ -2,6 +2,7 @@
 
 import os
 import json
+import math
 import tensorflow as tf
 from datetime import datetime
 from .helpers.blocks import TransformerXLEncoderStack, \
@@ -25,16 +26,20 @@ class MIDITransformer(tf.keras.Model):
         with open(self.config_path) as json_file: 
             self.configs = json.loads(json_file.read())
         ## -------------------------------------------------------------------
-        self.num_layers = int(self.configs['num_layers'])
         self.max_sequence_length = int(self.configs['max_sequence_length'])
+        self.memory_length = int(self.configs['memory_length'])
+        self.num_layers = int(self.configs['num_layers'])
         self.d_model = int(self.configs['d_model'])
+        self.num_heads = int(self.configs['num_heads'])
+        self.dff = int(self.configs['dff'])
         self.batch_size = int(self.configs['batch_size'])
         self.vocab_size = int(self.configs['vocab_size'])
-        self.memory_length = int(self.configs['memory_length'])
         self.task_name = self.configs['task_name']
-        self.initial_learning_rate = int(self.configs['initial_learning_rate']) # 0.001
-        self.end_learning_rate = int(self.configs['end_learning_rate']) # 0.00001
+        self.initial_learning_rate = float(self.configs['initial_learning_rate']) # 0.001
+        self.end_learning_rate = float(self.configs['end_learning_rate']) # 0.00001
         self.decay_steps = int(self.configs['decay_steps']) # 1000
+        self.create_encoder = bool(self.configs.get('create_encoder'))
+        self.create_decoder = bool(self.configs.get('create_decoder'))
         ## -------------------------------------------------------------------
         self.learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
           self.initial_learning_rate, self.decay_steps, self.end_learning_rate, power=3
@@ -48,22 +53,31 @@ class MIDITransformer(tf.keras.Model):
             [self.batch_size, 1, 1]
         )
         ## -------------------------------------------------------------------
-        if bool(self.configs.get('create_encoder')):
+        if self.create_encoder:
             self.encoder_embedding = tf.keras.layers.Embedding(
                 self.vocab_size, self.d_model,
                 name='encoder_embedding'
             )
-            self.encoder_stack = TransformerXLEncoderStack(self.configs['encoder'])
+            self.enc_dropout = tf.keras.layers.Dropout(0.1)
+            self.encoder_stack = TransformerXLEncoderStack(
+                self.num_layers, self.d_model, self.num_heads, self.dff,
+                self.memory_length, self.max_sequence_length
+            )
             self.enc_ckpt, self.enc_ckpt_manager = self.create_or_restore_checkpoint(
                 'encoder', self.encoder_stack, self.optimizer
             )
         ## -------------------------------------------------------------------
-        if bool(self.configs.get('create_decoder')):
+        if self.create_decoder:
             self.decoder_embedding = tf.keras.layers.Embedding(
                 self.vocab_size, self.d_model,
                 name='decoder_embedding'
             )
-            self.decoder_stack = TransformerXLDecoderStack(self.configs['decoder'])
+            self.dec_dropout = tf.keras.layers.Dropout(0.1)
+            self.decoder_stack = TransformerXLDecoderStack(
+                self.num_layers, self.d_model, self.num_heads, self.dff,
+                self.memory_length, self.max_sequence_length,
+                enc_dec_attn = self.create_encoder 
+            )
             self.dec_ckpt, self.dec_ckpt_manager = self.create_or_restore_checkpoint(
                 'decoder', self.decoder_stack, self.optimizer
             )
@@ -98,15 +112,13 @@ class MIDITransformer(tf.keras.Model):
         # -------------------------------------------------------------------
         for epoch in range(int(train_configs['num_epochs'])):
             # -------------------------------------------------------------------
-            for i, song in enumerate(dataset):
+            for i, tracks in enumerate(dataset):
                 ## -------------------------------------------------------------------
                 ## RUN TRAINING TASK
                 ## -------------------------------------------------------------------                
                 input_segments, \
                 output_segments, \
-                train_mask, padding_mask = preprocessing_fn(
-                    song[inputs_key], inputs_key
-                )
+                train_mask, padding_mask = preprocessing_fn(tracks, inputs_key, outputs_key)
                 loss_value, outputs = self.train_step(
                     train_fn, loss_fn, input_segments, output_segments,
                     self.positional_encoding, train_mask, padding_mask
@@ -134,13 +146,17 @@ class MIDITransformer(tf.keras.Model):
     ):
         ## -------------------------------------------------------------------
         self.reset_model_state()
-        all_vars = [self.encoder_stack.trainable_variables, self.decoder_stack.trainable_variables]
+        all_vars = [
+            self.trainable_variables,
+            self.encoder_stack.trainable_variables,
+            self.decoder_stack.trainable_variables
+        ]
         flat_list_vars = [item for sublist in all_vars for item in sublist]
         memory_length = tf.constant(train_configs['memory_length'])
         ## -------------------------------------------------------------------
         with tf.GradientTape() as tape:
         ## -------------------------------------------------------------------
-            outputs, model_vars = model_fn(inputs, outputs, positional_encoding, train_mask, padding_mask)
+            outputs = model_fn(inputs, outputs, positional_encoding, train_mask, padding_mask)
             final_output = self.output_dropout(
                 self.output_layer(decoder_output),
                 training=True
@@ -159,16 +175,21 @@ class MIDITransformer(tf.keras.Model):
     ## -------------------------------------------------------------------
     ## TASK - MUSIC GENERATION (DECODER ONLY)
     ## -------------------------------------------------------------------
-    def music_generation_preprocess(self, sequence, key):
-        pass
+    def music_generation_preprocess(self, tracks, inp_key, out_key):
+        inputs = self.create_musical_segments(tracks[inp_key], inp_key)
+        if (bool(out_key)):
+            outputs = self.create_musical_segments(tracks[out_key], out_key)
+        padding_mask = None
+        train_mask = None
+        return inputs, inputs train_mask, padding_mask
     ## -------------------------------------------------------------------
     def music_generation(self, inputs, ouputs, pe, t_mask, p_mask):
-        return run_decoder_stack(
+        return self.run_decoder_stack(
             inputs, pe, self.memory_length, t_mask, p_mask,
             encoder_outputs=None, training=None
         )
     ## -------------------------------------------------------------------
-    def music_generation_loss(self, sequence, key):
+    def music_generation_loss(self, inputs, outputs):
         pass
     ## -------------------------------------------------------------------
 
@@ -176,15 +197,19 @@ class MIDITransformer(tf.keras.Model):
     ## -------------------------------------------------------------------
     ## TASK - MUSIC INPAINTING (ENCODER ONLY)
     ## -------------------------------------------------------------------
-    def music_inpainting(self):
-        pass
+    def music_inpainting_preprocess(self, tracks, inp_key, out_key):
+        inputs = self.create_musical_segments(tracks[inp_key], inp_key)
+        outputs = self.create_musical_segments(tracks[out_key], out_key)
+        padding_mask = None
+        train_mask = None
+        return inputs, outputs, train_mask, padding_mask
     ## -------------------------------------------------------------------
-    def music_inpainting_preprocess(self, inputs, ouputs, pe, t_mask, p_mask):
-        return run_encoder_stack(
+    def music_inpainting(self, inputs, outputs, pe, t_mask, p_mask):
+        return self.run_encoder_stack(
             inputs, pe, self.memory_length, t_mask, p_mask, training=True
         )
     ## -------------------------------------------------------------------
-    def music_inpainting_loss(self, sequence, key):
+    def music_inpainting_loss(self, inputs, outputs):
         pass
     ## -------------------------------------------------------------------
 
@@ -193,19 +218,22 @@ class MIDITransformer(tf.keras.Model):
     ## TASK - MUSIC TRANSLATION (ENCODER + DECODER)
     ## -------------------------------------------------------------------
     def musical_translation_preprocess(self, song, input_key, output_key):
-        pass
+        inputs = self.create_musical_segments(tracks[inp_key], inp_key)
+        outputs = self.create_musical_segments(tracks[out_key], out_key)
+        padding_mask = None
+        train_mask = None
+        return inputs, outputs, train_mask, padding_mask
     ## -------------------------------------------------------------------
     def musical_translation(self, inputs, ouputs, pe, t_mask, p_mask):
-        encoder_outputs = run_encoder_stack(
+        encoder_outputs = self.run_encoder_stack(
             inputs, pe, self.memory_length, t_mask, p_mask, training=True
         )
-
-        return run_decoder_stack(
+        return self.run_decoder_stack(
             inputs, pe, self.memory_length, t_mask, p_mask,
             encoder_outputs=encoder_outputs, training=True
         )
     ## -------------------------------------------------------------------
-    def music_translation_loss(self, sequence, key):
+    def music_translation_loss(self, inputs, outputs):
         pass
     ## -------------------------------------------------------------------
 
@@ -251,14 +279,15 @@ class MIDITransformer(tf.keras.Model):
     ):
         ## -------------------------------------------------------------------
         embeddings = self.encoder_embedding(inputs)
+        embeddings *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        embeddings = self.enc_dropout(embeddings, training=training)
+
         return self.encoder_stack(
-            embeddings,                 # Query
-            embeddings,                 # Key
-            embeddings,                 # Value
-            memory_length               # Length of previous memories
+            embeddings,                 # Embedding of MIDI NoteSequence
+            memory_length,              # Length of previous memories
             positional_encoding,        # Sinusoidal positional encoding
             t_mask,                     # Task related mask (Look ahead mask or Masked-LM mask)
-            padding_mask                # Padding mask for input
+            padding_mask,               # Padding mask for input
             training,                   # Mode of operation
         )
         ## -------------------------------------------------------------------
@@ -272,40 +301,35 @@ class MIDITransformer(tf.keras.Model):
     ):
         ## -------------------------------------------------------------------
         embeddings = self.decoder_embedding(inputs)
-        query = inputs
-        if (encoder_outputs):
-            key = encoder_outputs
-        else:
-            key = inputs
-        value = key
+        embeddings *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        embeddings = self.dec_dropout(embeddings, training=training)
+
         return self.decoder_stack(
-            query,                      # Query
-            key,                        # Key
-            value,                      # Value
-            memory_length               # Length of memory of previous segments
+            embeddings,                 # Embedding of MIDI NoteSequence
+            memory_length,              # Length of memory of previous segments
             positional_encoding,        # Sinusoidal positional encoding
             t_mask,                     # Task related mask (Look ahead mask or Masked-LM mask)
-            padding_mask                # Padding mask for input
+            padding_mask,               # Padding mask for input
+            encoder_outputs,            # Outputs from encoder if any
             training,                   # Mode of operation
         )
         ## -------------------------------------------------------------------
-        return outputs, attn_weights
     ## -------------------------------------------------------------------
 
 
     ## -------------------------------------------------------------------
     def create_or_restore_checkpoint(self, name, model, optimizer):
         ## -------------------------------------------------------------------
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=self.encoder_stack)
+        ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
         ckpt_path = os.path.join(self.model_path, 'ckpt', name)
-        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, ckpt_path max_to_keep=3)
-        self.ckpt.restore(self.encoder_ckpt_manager.latest_checkpoint)
+        ckpt_manager = tf.train.CheckpointManager(ckpt, ckpt_path, max_to_keep=3)
+        ckpt.restore(ckpt_manager.latest_checkpoint)
         ## -------------------------------------------------------------------
-        if self.encoder_ckpt_manager.latest_checkpoint:
-            print("Restored" + name.upper() + "from {}".format(self.encoder_ckpt_manager.latest_checkpoint))
+        if ckpt_manager.latest_checkpoint:
+            print("Restored" + name.upper() + "from {}".format(ckpt_manager.latest_checkpoint))
         else:
-            print("Initializing" + name.upper() + "from scratch.")
-        return self.ckpt, self.ckpt_manager
+            print("Initializing " + name.upper() + " from scratch.")
+        return ckpt, ckpt_manager
         ## -------------------------------------------------------------------
     ## -------------------------------------------------------------------
 
