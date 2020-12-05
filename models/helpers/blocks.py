@@ -82,13 +82,13 @@ class TransformerXLDecoderStack(tf.keras.Model):
         ## -------------------------------------------------------------------
         self.dec_layers = [
             XLDecoderLayer(
-                self.d_model, 
-                self.num_heads, 
-                self.dff, 
+                self.d_model,
+                self.num_heads,
+                self.dff,
                 self.memory_length,
-                self.max_sequence_length, 
+                self.max_sequence_length,
                 self.dropout_rate,
-                name = 'XLEncoderLayer-{}'.format(i + 1)
+                name = 'XLDecoderLayer-{}'.format(i + 1)
             ) for i in range(self.num_layers)
         ]
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)

@@ -1,25 +1,15 @@
 {
+        "task_name": "music_generation",
+        "create_encoder": "False",
+        "create_decoder": "True",
+
+        "num_layers": "6",
+        "max_sequence_length": "256",
+        "d_model": "256",
         "batch_size": "2",
-	"encoder": {
-        "num_layers": "2",
-        "d_model": "64",
-        "num_heads": "2",
-        "dff": "32",
-        "input_vocab_size": "389",
-        "maximum_position_encoding": "128",
-        "memory_length": "128",
-        "dropout_rate": "0.1",
-        "max_sequence_length": "128"
-	},
-	"decoder": {
-        "num_layers": "2",
-        "d_model": "64",
-        "num_heads": "2",
-        "dff": "32",
-        "target_vocab_size": "389",
-        "maximum_position_encoding": "128",
-        "memory_length": "128",
-        "dropout_rate": "0.1",
-        "max_sequence_length": "128"
-	}
+        "vocab_size": "389",
+        "memory_length": "256",
+        "initial_learning_rate": "0.001",
+        "end_learning_rate": "0.00001",
+        "decay_steps": "1000"
 }
