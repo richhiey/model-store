@@ -32,7 +32,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=32, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -68,6 +68,8 @@ class Memory(tf.keras.layers.Layer):
         seq_len = K.cast(K.shape(inputs)[1], 'int32')
 
         # Build new memory
+        pad = tf.tile(inputs[0:1, ...], (self.batch_size-batch_size,1,1))
+        padded = K.concatenate([inputs, pad], axis=0)              # (self.batch_size, seq_len, output_dim)
         #padded = K.concatenate([inputs, pad], axis=0)              # (self.batch_size, seq_len, output_dim)
         new_memory = K.concatenate([self.memory, inputs], axis=1)  # (self.batch_size, self.memory_len + seq_len, ...)
         new_memory = tf.slice(                                     # (self.batch_size, self.memory_len, output_dim)
