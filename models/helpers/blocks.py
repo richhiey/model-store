@@ -92,7 +92,6 @@ class TransformerXLDecoderStack(tf.keras.Model):
         ## -------------------------------------------------------------------
     ## -------------------------------------------------------------------
 
-
     ## -------------------------------------------------------------------
     def call(self, embeddings, memory_length, positional_encoding, 
         padding_mask, encoder_outputs=None, training=None):
