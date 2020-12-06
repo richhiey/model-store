@@ -13,6 +13,21 @@ from .helpers.utils import  positional_encoding, \
                             create_padding_mask, \
                             reconstruct_and_play_audio
 
+class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+  def __init__(self, d_model, warmup_steps=4000):
+    super(CustomSchedule, self).__init__()
+
+    self.d_model = d_model
+    self.d_model = tf.cast(self.d_model, tf.float32)
+
+    self.warmup_steps = warmup_steps
+
+  def __call__(self, step):
+    arg1 = tf.math.rsqrt(step)
+    arg2 = step * (self.warmup_steps ** -1.5)
+
+    return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
 
 class MIDITransformer(tf.keras.Model):
     ## -------------------------------------------------------------------
@@ -43,10 +58,10 @@ class MIDITransformer(tf.keras.Model):
         self.create_encoder = bool(self.configs.get('create_encoder'))
         self.create_decoder = bool(self.configs.get('create_decoder'))
         ## -------------------------------------------------------------------
-        self.learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
-          self.initial_learning_rate, self.decay_steps, self.end_learning_rate, power=3
+        self.learning_rate = CustomSchedule(self.d_model)
+        self.optimizer = tf.keras.optimizers.Adam(
+            self.learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9
         )
-        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate_fn)
         ## -------------------------------------------------------------------
         self.positional_encoding = tf.tile(
             positional_encoding(
