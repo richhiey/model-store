@@ -37,7 +37,7 @@ def positional_encoding(position, d_model):
 def create_padding_mask(seq):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
     # add extra dimensions to add the padding to the attention logits.
-    seq[:, tf.newaxis, tf.newaxis, :] #(batch_size, 1, 1, seq_len)  
+    return seq[:, tf.newaxis, tf.newaxis, :] #(batch_size, 1, 1, seq_len)  
 ## -------------------------------------------------------------------
 
 
@@ -95,3 +95,6 @@ def point_wise_feed_forward_network(d_model, dff):
         tf.keras.layers.Dense(d_model)  # (batch_size, seq_len, d_model)
     ])
 ## -------------------------------------------------------------------
+
+def reconstruct_and_play_audio(x):
+    pass

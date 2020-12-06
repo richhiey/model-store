@@ -9,7 +9,8 @@ from .helpers.blocks import TransformerXLEncoderStack, \
                             TransformerXLDecoderStack
 from .helpers.utils import  positional_encoding, \
                             create_look_ahead_mask, \
-                            create_padding_mask
+                            create_padding_mask, \
+                            reconstruct_and_play_audio
 
 
 class MIDITransformer(tf.keras.Model):
@@ -26,7 +27,7 @@ class MIDITransformer(tf.keras.Model):
         with open(self.config_path) as json_file: 
             self.configs = json.loads(json_file.read())
         ## -------------------------------------------------------------------
-        self.max_sequence_length = int(self.configs['max_sequence_length'])
+        self.max_sequence_length = int(self.configs['max_sequence_length']) - 1
         self.memory_length = int(self.configs['memory_length'])
         self.num_layers = int(self.configs['num_layers'])
         self.d_model = int(self.configs['d_model'])
@@ -46,9 +47,9 @@ class MIDITransformer(tf.keras.Model):
         )
         self.optimizer = tf.keras.optimizers.Adam(self.learning_rate_fn)
         ## -------------------------------------------------------------------
-        self.posîtional_encoding = tf.tile(
+        self.positional_encoding = tf.tile(
             positional_encoding(
-                self.memory_length * self.max_sequence_length, self.d_model
+                self.memory_length + self.max_sequence_length, self.d_model
             ),
             [self.batch_size, 1, 1]
         )
@@ -83,6 +84,8 @@ class MIDITransformer(tf.keras.Model):
             )
         ## -------------------------------------------------------------------
         self.output_layer = tf.keras.layers.Dense(self.vocab_size)
+        self.output_dropout = tf.keras.layers.Dropout(0.1)
+        self.cross_entropy = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         ## -------------------------------------------------------------------
         self.tensorboard_logdir = os.path.join(
             self.model_path,
@@ -116,22 +119,36 @@ class MIDITransformer(tf.keras.Model):
                 ## -------------------------------------------------------------------
                 ## RUN TRAINING TASK
                 ## -------------------------------------------------------------------                
+                current_step = epoch*i
                 input_segments, \
                 output_segments, \
-                train_mask, padding_mask = preprocessing_fn(tracks, inputs_key, outputs_key)
+                padding_mask = preprocessing_fn(tracks, inputs_key, outputs_key)
+                
+                tf.summary.trace_on(graph=True, profiler=True)
                 loss_value, outputs = self.train_step(
                     train_fn, loss_fn, input_segments, output_segments,
-                    self.positional_encoding, train_mask, padding_mask
+                    self.positional_encoding, padding_mask
                 )
                 ## -------------------------------------------------------------------
+                tf.summary.scalar('Cross Entropy Loss', loss_value, step=current_step)
+                tf.summary.trace_export(
+                    name='MIDI Transformer',
+                    step=current_step,
+                    profiler_outdir=self.tensorboard_logdir
+                )
                 print('Loss (' + str(i) + ') - ' + str(loss_value))
-                tf.summary.scalar('Cross Entropy Loss', loss_value, step=int(self.encoder_ckpt.step))
+                if i % 1000 == 0:
+                    print('Lets listen to what to the model sounds like step ' + str(current_step) + '!')
+                    reconstruct_and_play_audio(input_segments)
+                    reconstruct_and_play_audio(output_segments)
+                    reconstruct_and_play_audio(outputs)
                 if i % 100 == 0:
                     print(outputs)
                     self.save_model_checkpoint()
-                       
-                self.encoder_ckpt.step.assign_add(1)
-                self.decoder_ckpt.step.assign_add(1)
+                if self.create_encoder:                       
+                    self.enc_ckpt.step.assign_add(1)
+                if self.create_decoder:
+                    self.dec_ckpt.step.assign_add(1)
                 ## -------------------------------------------------------------------
             self.save_model_checkpoint()
             # -------------------------------------------------------------------
@@ -140,57 +157,75 @@ class MIDITransformer(tf.keras.Model):
 
 
     ## -------------------------------------------------------------------
+    @tf.function
     def train_step(
-        self, model_fn, loss_fn, inputs, outputs,
-        positional_encoding, train_mask, padding_mask
+        self, model_fn, loss_fn, inputs, targets,
+        positional_encoding, padding_mask
     ):
         ## -------------------------------------------------------------------
         self.reset_model_state()
-        all_vars = [
-            self.trainable_variables,
-            self.encoder_stack.trainable_variables,
-            self.decoder_stack.trainable_variables
-        ]
-        flat_list_vars = [item for sublist in all_vars for item in sublist]
-        memory_length = tf.constant(train_configs['memory_length'])
+        memory_length = tf.constant(self.memory_length)
         ## -------------------------------------------------------------------
-        with tf.GradientTape() as tape:
-        ## -------------------------------------------------------------------
-            outputs = model_fn(inputs, outputs, positional_encoding, train_mask, padding_mask)
-            final_output = self.output_dropout(
-                self.output_layer(decoder_output),
-                training=True
-            )
-            final_softmax = tf.nn.softmax(decoder_output)
-            loss_value = loss_fn(outputs, final_softmax)       
-            gradients = tape.gradient(loss_value, model_vars)
-        ## -------------------------------------------------------------------
-        self.optimizer.apply_gradients(zip(gradients, model_vars))
+        for x, y in zip(inputs, targets):
+            with tf.GradientTape() as tape:
+            ## -------------------------------------------------------------------
+                outputs = model_fn(x, y, positional_encoding, padding_mask)
+                final_output = self.output_dropout(
+                    self.output_layer(outputs),
+                    training=True
+                )
+                final_softmax = tf.nn.softmax(final_output)
+                loss_value = loss_fn(y, final_softmax)
+                print(loss_value)
+                trainable_variables = self.collect_trainable_variables()
+                gradients = tape.gradient(loss_value, trainable_variables)
+            ## -------------------------------------------------------------------
+            self.optimizer.apply_gradients(zip(gradients, trainable_variables))
         ## -------------------------------------------------------------------
         return loss_value, outputs
         ## -------------------------------------------------------------------
     ## -------------------------------------------------------------------
+
+    def collect_trainable_variables(self):
+        variables = [self.trainable_variables]
+        if self.create_encoder:
+            variables.append(self.encoder_stack.trainable_variables)
+        if self.create_decoder:
+            variables.append(self.decoder_stack.trainable_variables)
+        variables = [item for sublist in variables for item in sublist]
+        return variables
 
 
     ## -------------------------------------------------------------------
     ## TASK - MUSIC GENERATION (DECODER ONLY)
     ## -------------------------------------------------------------------
     def music_generation_preprocess(self, tracks, inp_key, out_key):
-        inputs = self.create_musical_segments(tracks[inp_key], inp_key)
+        inputs = self.create_musical_segments(
+            tf.sparse.to_dense(tracks[inp_key])[:,:-1], inp_key
+        )
         if (bool(out_key)):
-            outputs = self.create_musical_segments(tracks[out_key], out_key)
-        padding_mask = None
-        train_mask = None
-        return inputs, inputs train_mask, padding_mask
+            outputs = self.create_musical_segments(
+                tf.sparse.to_dense(tracks[out_key])[:,1:], out_key
+            )
+        full_inputs = tf.concat(inputs, axis=-1)
+        segment_length = tf.shape(full_inputs)[1]
+        num_splits = segment_length / self.max_sequence_length
+        padding_mask = tf.squeeze(create_padding_mask(full_inputs))
+        padding_mask = tf.split(
+            padding_mask,
+            num_or_size_splits=int(num_splits),
+            axis=1
+        )
+        return inputs, outputs, padding_mask
     ## -------------------------------------------------------------------
-    def music_generation(self, inputs, ouputs, pe, t_mask, p_mask):
+    def music_generation(self, inputs, ouputs, pe, p_mask, masked_attention=True):
         return self.run_decoder_stack(
-            inputs, pe, self.memory_length, t_mask, p_mask,
+            inputs, pe, self.memory_length, p_mask,
             encoder_outputs=None, training=None
         )
     ## -------------------------------------------------------------------
-    def music_generation_loss(self, inputs, outputs):
-        pass
+    def music_generation_loss(self, targets, outputs):
+        return self.cross_entropy(targets, outputs)
     ## -------------------------------------------------------------------
 
 
@@ -239,22 +274,24 @@ class MIDITransformer(tf.keras.Model):
 
 
     # ------------------------------------------------------------------------------        
-    def create_musical_segments(self, inputs, key):
+    def create_musical_segments(self, inputs, key, split=True):
         # ------------------------------------------------------------------------------
         inp_pad_size = 0
-        inputs = tf.sparse.to_dense(inputs)
         segment_length = tf.shape(inputs)[1]
         if (segment_length % self.max_sequence_length):
             inp_pad_size = int(segment_length / self.max_sequence_length)
             inp_pad_size = ((inp_pad_size + 1) * self.max_sequence_length) - segment_length
             inputs = tf.pad(inputs, [[0, 0],[0, inp_pad_size]])
         # ------------------------------------------------------------------------------        
-        num_splits = math.ceil(segment_length / self.max_sequence_length)
-        return tf.split(
-            inputs,
-            num_or_size_splits=num_splits, 
-            axis=1
-        )
+        if split:
+            num_splits = math.ceil(segment_length / self.max_sequence_length)
+            return tf.split(
+                inputs,
+                num_or_size_splits=num_splits, 
+                axis=1
+            )
+        else:
+            return inputs
         # ------------------------------------------------------------------------------        
     # ------------------------------------------------------------------------------        
 
@@ -267,14 +304,16 @@ class MIDITransformer(tf.keras.Model):
 
     ## -------------------------------------------------------------------
     def reset_model_state(self):
-        self.encoder_stack.reset_states()
-        self.decoder_stack.reset_states()
+        if self.create_encoder:
+            self.encoder_stack.reset_states()
+        if self.create_decoder:
+            self.decoder_stack.reset_states()
     ## -------------------------------------------------------------------
 
 
     ## -------------------------------------------------------------------
     def run_encoder_stack(
-        self, inputs, positional_encoding, memory_length, t_mask, padding_mask,
+        self, inputs, positional_encoding, memory_length, padding_mask,
         training=True
     ):
         ## -------------------------------------------------------------------
@@ -296,7 +335,7 @@ class MIDITransformer(tf.keras.Model):
 
     ## -------------------------------------------------------------------
     def run_decoder_stack(
-        self, inputs, positional_encoding, memory_length, t_mask, padding_mask, 
+        self, inputs, positional_encoding, memory_length, padding_mask, 
         encoder_outputs=None, training=None
     ):
         ## -------------------------------------------------------------------
@@ -308,7 +347,6 @@ class MIDITransformer(tf.keras.Model):
             embeddings,                 # Embedding of MIDI NoteSequence
             memory_length,              # Length of memory of previous segments
             positional_encoding,        # Sinusoidal positional encoding
-            t_mask,                     # Task related mask (Look ahead mask or Masked-LM mask)
             padding_mask,               # Padding mask for input
             encoder_outputs,            # Outputs from encoder if any
             training,                   # Mode of operation
@@ -337,14 +375,14 @@ class MIDITransformer(tf.keras.Model):
     ## -------------------------------------------------------------------
     def save_model_checkpoint(self):
         ## -------------------------------------------------------------------
-        encoder_save_path = self.encoder_ckpt_manager.save()
-        decoder_save_path = self.decoder_ckpt_manager.save()
-        print(
-            "Saved checkpoint for step {}: {}, {}".format(
-                int(self.encoder_ckpt.step),
-                encoder_save_path,
-                decoder_save_path
-            )
-        )
+        if self.create_encoder:
+            encoder_save_path = self.enc_ckpt_manager.save()
+            step = int(self.enc_ckpt.step)
+            print("Saved checkpoint for step {}: {}".format(step, encoder_save_path))
+
+        if self.create_decoder:
+            decoder_save_path = self.dec_ckpt_manager.save()
+            step = int(self.dec_ckpt.step)
+            print("Saved checkpoint for step {}: {}".format(step, decoder_save_path))
         ## -------------------------------------------------------------------
     ## -------------------------------------------------------------------

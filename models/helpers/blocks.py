@@ -72,7 +72,7 @@ class TransformerXLDecoderStack(tf.keras.Model):
         self.num_heads = num_heads
         self.dff = dff
         self.memory_length = tf.constant(memory_length)
-        self.max_sequence_length = tf.constant(max_sequence_length)
+        self.max_sequence_length = max_sequence_length
         self.enc_dec_attn = enc_dec_attn
         self.dropout_rate = 0.1
         ## -------------------------------------------------------------------
@@ -95,14 +95,14 @@ class TransformerXLDecoderStack(tf.keras.Model):
 
     ## -------------------------------------------------------------------
     def call(self, embeddings, memory_length, positional_encoding, 
-        t_mask, padding_mask, encoder_outputs=None, training=None):
+        padding_mask, encoder_outputs=None, training=None):
         ## -------------------------------------------------------------------
+        outputx = embeddings
         for i in range(self.num_layers):
-            outputx, attention_weights = self.dec_layers[i](
-                embeddings,
+            outputx = self.dec_layers[i](
+                outputx,
                 memory_length,
                 positional_encoding,
-                t_mask,
                 padding_mask,
                 encoder_outputs,
                 training

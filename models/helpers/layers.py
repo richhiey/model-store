@@ -32,7 +32,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=30, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -68,9 +68,8 @@ class Memory(tf.keras.layers.Layer):
         seq_len = K.cast(K.shape(inputs)[1], 'int32')
 
         # Build new memory
-        pad = K.tile(inputs[0:1, ...], (self.batch_size - batch_size, 1, 1))
-        padded = K.concatenate([inputs, pad], axis=0)              # (self.batch_size, seq_len, output_dim)
-        new_memory = K.concatenate([self.memory, padded], axis=1)  # (self.batch_size, self.memory_len + seq_len, ...)
+        #padded = K.concatenate([inputs, pad], axis=0)              # (self.batch_size, seq_len, output_dim)
+        new_memory = K.concatenate([self.memory, inputs], axis=1)  # (self.batch_size, self.memory_len + seq_len, ...)
         new_memory = tf.slice(                                     # (self.batch_size, self.memory_len, output_dim)
             new_memory,
             (0, seq_len, 0),
@@ -280,6 +279,7 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
         w_qr = self._reshape_to_batches(w_qr)                 # (batch * n_head, seq_len, units_head)
         w_r = self._reshape_to_batches(w_r)                   # (batch * n_head, prev_len + seq_len, units_head)
         a_relative = K.batch_dot(w_qr, w_r, axes=2)           # (batch * n_head, seq_len, prev_len + seq_len)
+        
         a_relative = self._relative_shift(a_relative)         # (batch * n_head, seq_len, prev_len + seq_len)
 
         att = (a_context + a_relative) / K.sqrt(K.constant(self.units_head, dtype=K.floatx()))
@@ -474,6 +474,8 @@ class XLDecoderLayer(tf.keras.layers.Layer):
         self.masked_multi_headed_attention = RelativePartialMultiHeadSelfAttention(d_model, num_heads)
         self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = tf.keras.layers.Dropout(rate)
+        self.layernorm3 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.dropout3 = tf.keras.layers.Dropout(rate)
         #--------------------------------------------------------------------------------
         self.decoder_relative_position_bias = RelativeBias(
             units=d_model,
@@ -507,8 +509,8 @@ class XLDecoderLayer(tf.keras.layers.Layer):
         #--------------------------------------------------------------------------------
 
 
-    def call(embeddings, memory_length, positional_encoding,
-        t_mask, padding_mask, training, encoder_outputs=None):
+    def call(self, embeddings, memory_length, positional_encoding,
+        padding_mask, training, encoder_outputs=None):
         #--------------------------------------------------------------------------------
         decoder_last_memory = self.decoder_memory([embeddings, memory_length])
         decoder_context_bias, decoder_relative_bias = self.decoder_relative_position_bias(decoder_last_memory)
@@ -549,12 +551,12 @@ class XLDecoderLayer(tf.keras.layers.Layer):
                 masked_attention=False,
                 training=training
             )
-            eda_d = self.dropout1(eda, training = training)
-            outputs = self.layernorm1(eda_d + outputs)
+            eda_d = self.dropout2(eda, training = training)
+            outputs = self.layernorm2(eda_d + outputs)
         #--------------------------------------------------------------------------------
         ffn = self.ffn(outputs)
-        ffn_d = self.dropout2(ffn, training = training)
-        outputs = self.layernorm2(ffn_d + outputs)
+        ffn_d = self.dropout3(ffn, training = training)
+        outputs = self.layernorm3(ffn_d + outputs)
         #--------------------------------------------------------------------------------
         return outputs
         #--------------------------------------------------------------------------------
