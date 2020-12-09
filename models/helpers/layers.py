@@ -32,7 +32,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=16, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True

@@ -157,17 +157,17 @@ class MIDITransformer(tf.keras.Model):
                 ## -------------------------------------------------------------------
                 output_argmax = tf.math.argmax(outputs, axis=-1).numpy()[0]
                 output_segments = tf.concat(output_segments, axis=-1).numpy()[0]
-                if i % 1000 == 0:
-                    print('Lets listen to what to the model sounds like step ' + str(current_step) + '!')
+                if i % 100 == 0:
+                    print('Lets see to what to the model sounds like step ' + str(current_step) + '!')
                     #reconstruct_and_play_audio(input_segments)
                     reconstruct_and_play_audio(output_segments, event_processor, name='TARGETS', program=piano)
                     reconstruct_and_play_audio(output_argmax, event_processor, name='OUTPUTS', program=piano)
                 if i % 100 == 0:
                     print('Loss (' + str(i) + ') - ' + str(loss_value))
-                    print('Predicted by model:')
-                    print(list(output_argmax))
-                    print('Real Music:')
-                    print(list(output_segments))
+                    #print('Predicted by model:')
+                    #print(list(output_argmax))
+                    #print('Real Music:')
+                    #print(list(output_segments))
                     self.save_model_checkpoint()
                 if self.create_encoder:                       
                     self.enc_ckpt.step.assign_add(1)
