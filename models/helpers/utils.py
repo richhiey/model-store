@@ -3,6 +3,10 @@
 ####################################################################
 import numpy as np
 import tensorflow as tf
+import pretty_midi
+import IPython
+import librosa
+#import note_seq
 ####################################################################
 
 
@@ -96,5 +100,34 @@ def point_wise_feed_forward_network(d_model, dff):
     ])
 ## -------------------------------------------------------------------
 
-def reconstruct_and_play_audio(x):
-    pass
+
+## -------------------------------------------------------------------
+def plot_piano_roll(pm, start_pitch, end_pitch, fs=100):
+    # Use librosa's specshow function for displaying the piano roll
+    librosa.display.specshow(pm.get_piano_roll(fs)[start_pitch:end_pitch],
+                             hop_length=1, sr=fs, x_axis='time', y_axis='cqt_note',
+                             fmin=pretty_midi.note_number_to_hz(start_pitch))
+## -------------------------------------------------------------------
+
+
+## -------------------------------------------------------------------
+## Reconstruct MIDI data from list of tokenized MIDI Events
+## -------------------------------------------------------------------
+def reconstruct_and_play_audio(seq, processor, name='Untitled', program=1):
+    print('----------------------------------------------------------')
+    print(name + ':')
+
+    full_midi = pretty_midi.PrettyMIDI()
+    melody_instr = pretty_midi.Instrument(program=program)
+    
+    for note in processor.decode(seq):
+        melody_instr.notes.append(note)
+    full_midi.instruments.append(melody_instr)
+    full_midi.write(
+    plot_piano_roll(full_midi, 24, 84)
+    #midi_2_wav = full_midi.synthesize()
+    #IPython.display.display(IPython.display.Audio(midi_2_wav, rate=44100))
+    print('Done reconstructing events into Piano Roll!')
+    full_midi_ns = note_seq.midi_io.midi_file_to_note_sequence(filename)
+    #note_seq.plot_sequence(full_midi_ns)
+## -------------------------------------------------------------------

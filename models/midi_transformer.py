@@ -6,6 +6,7 @@ import math
 import tensorflow as tf
 from datetime import datetime
 from tqdm import tqdm
+import pretty_midi
 from .helpers.blocks import TransformerXLEncoderStack, \
                             TransformerXLDecoderStack
 from .helpers.utils import  positional_encoding, \
@@ -120,7 +121,7 @@ class MIDITransformer(tf.keras.Model):
 
 
     ## -------------------------------------------------------------------
-    def train(self, dataset, train_configs=None):
+    def train(self, dataset, event_processor, train_configs=None):
         ## -------------------------------------------------------------------
         preprocessing_fn = eval('self.' + self.task_name + '_preprocess')
         train_fn = eval('self.' + self.task_name)
@@ -131,6 +132,7 @@ class MIDITransformer(tf.keras.Model):
         outputs_key = train_configs.get('outputs')
         print('Training the encoder on key: ' + inputs_key)
         print('Training the encoder on key: ' + outputs_key)
+        piano = pretty_midi.instrument_name_to_program('Acoustic Grand Piano')
         # -------------------------------------------------------------------
         for epoch in range(int(train_configs['num_epochs'])):
             # -------------------------------------------------------------------
@@ -153,17 +155,19 @@ class MIDITransformer(tf.keras.Model):
                     self.positional_encoding, padding_mask, current_step
                 )
                 ## -------------------------------------------------------------------
+                output_argmax = tf.math.argmax(outputs, axis=-1).numpy()[0]
+                output_segments = tf.concat(output_segments, axis=-1).numpy()[0]
                 if i % 1000 == 0:
                     print('Lets listen to what to the model sounds like step ' + str(current_step) + '!')
-                    reconstruct_and_play_audio(input_segments)
-                    reconstruct_and_play_audio(output_segments)
-                    reconstruct_and_play_audio(outputs)
+                    #reconstruct_and_play_audio(input_segments)
+                    reconstruct_and_play_audio(output_segments, event_processor, name='TARGETS', program=piano)
+                    reconstruct_and_play_audio(output_argmax, event_processor, name='OUTPUTS', program=piano)
                 if i % 100 == 0:
                     print('Loss (' + str(i) + ') - ' + str(loss_value))
                     print('Predicted by model:')
-                    print(tf.math.argmax(outputs, axis=-1))
+                    print(list(output_argmax))
                     print('Real Music:')
-                    print(tf.concat(input_segments, axis=-1))
+                    print(list(output_segments))
                     self.save_model_checkpoint()
                 if self.create_encoder:                       
                     self.enc_ckpt.step.assign_add(1)
@@ -187,33 +191,33 @@ class MIDITransformer(tf.keras.Model):
         memory_length = tf.constant(self.memory_length)
         ## -----------l--------------------------------------------------------
         num_segments = 0
-        loss_values = []
         all_outputs = []
+        all_targets = []
+        all_padding = []
         ## -----------l--------------------------------------------------------
-        for x, y, z in zip(inputs, targets, padding_mask):
+        with tf.GradientTape() as tape:
+            for x, y, z in zip(inputs, targets, padding_mask):
+                ## -------------------------------------------------------------------
+                outputs = model_fn(x, y, positional_encoding, z, step=current_step)
+                output_mask = tf.tile(tf.expand_dims(tf.ones(tf.shape(z)) - z, axis=-1), [1,1,self.vocab_size])
+                final_softmax = self.output_layer(outputs) * output_mask
+                all_padding.append(z)
+                all_outputs.append(final_softmax)
+                all_targets.append(y)
+                num_segments += 1
+            full_output = tf.concat(all_outputs, axis=1)
+            loss = loss_fn(tf.concat(all_targets, axis=1), full_output, tf.concat(all_padding, axis=1))
+            total_loss = tf.reduce_mean(loss)
+            tf.summary.scalar('Cross Entropy Loss', total_loss, step=current_step)
+        ## -----------l--------------------------------------------------------
+        trainable_variables = self.collect_trainable_variables()
+        gradients = tape.gradient(total_loss, trainable_variables)
+        grads_and_vars = zip(gradients, trainable_variables)
+        grads_and_vars = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in grads_and_vars]
         ## -------------------------------------------------------------------
-            with tf.GradientTape() as tape:
-                if tf.equal(tf.reduce_sum(x), 0):
-                    print('ALL INPUTS ARE PADDED, SO WE WILL SKIP THIS ONE!!')
-                else:
-                    outputs = model_fn(x, y, positional_encoding, z, step=current_step)
-                    output_mask = tf.tile(tf.expand_dims(tf.ones(tf.shape(z)) - z, axis=-1), [1,1,self.vocab_size])
-                    final_softmax = self.output_layer(outputs) * output_mask
-                    loss = loss_fn(y, final_softmax, z)
-            
-            num_segments += 1
-            loss_values.append(loss)
-            all_outputs.append(final_softmax)
-            ## -----------l--------------------------------------------------------
-            trainable_variables = self.collect_trainable_variables()
-            grads_and_vars = zip(tape.gradient(loss, trainable_variables), trainable_variables)
-            grads_and_vars = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in grads_and_vars]
-            self.optimizer.apply_gradients(grads_and_vars)
-            ## -------------------------------------------------------------------
-            tf.summary.scalar('Cross Entropy Loss', loss, step=current_step)
+        self.optimizer.apply_gradients(grads_and_vars)
         ## -------------------------------------------------------------------
-        total_loss = tf.reduce_mean(loss_values)
-        return total_loss, tf.concat(all_outputs, axis=1)
+        return total_loss, full_output
         ## -------------------------------------------------------------------
 
         
@@ -254,7 +258,7 @@ class MIDITransformer(tf.keras.Model):
         tf.summary.trace_on(graph=True)
         decoder_output = self.run_decoder_stack(
             inputs, pe, self.memory_length, p_mask,
-            encoder_outputs=None, training=None
+            encoder_outputs=None, training=True
         )
         tf.summary.trace_export(name='MIDI Transformer', step=step)
         return decoder_output
