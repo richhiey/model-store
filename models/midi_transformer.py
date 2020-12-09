@@ -14,19 +14,20 @@ from .helpers.utils import  positional_encoding, \
                             reconstruct_and_play_audio
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-  def __init__(self, d_model, warmup_steps=4000):
-    super(CustomSchedule, self).__init__()
+    def __init__(self, d_model, warmup_steps=4000):
+        super(CustomSchedule, self).__init__()
 
-    self.d_model = d_model
-    self.d_model = tf.cast(self.d_model, tf.float32)
+        self.d_model = d_model
+        self.d_model = tf.cast(self.d_model, tf.float32)
 
-    self.warmup_steps = warmup_steps
+        self.warmup_steps = warmup_steps
 
-  def __call__(self, step):
-    arg1 = tf.math.rsqrt(step)
-    arg2 = step * (self.warmup_steps ** -1.5)
-
-    return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+    def __call__(self, step):
+        arg1 = tf.math.rsqrt(step)
+        arg2 = step * (self.warmup_steps ** -1.5)
+        lr = tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+        tf.summary.scalar('Learning Rate', lr, step=int(step))
+        return lr
 
 
 class MIDITransformer(tf.keras.Model):
@@ -99,9 +100,11 @@ class MIDITransformer(tf.keras.Model):
                 'decoder', self.decoder_stack, self.optimizer
             )
         ## -------------------------------------------------------------------
-        self.output_layer = tf.keras.layers.Dense(self.vocab_size)
+        self.output_layer = tf.keras.layers.Dense(self.vocab_size, activation='softmax')
         self.output_dropout = tf.keras.layers.Dropout(0.1)
-        self.cross_entropy = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        self.cross_entropy = tf.keras.losses.SparseCategoricalCrossentropy(
+            from_logits=True, reduction=tf.keras.losses.Reduction.NONE
+        )
         ## -------------------------------------------------------------------
         self.tensorboard_logdir = os.path.join(
             self.model_path,
@@ -135,17 +138,21 @@ class MIDITransformer(tf.keras.Model):
                 ## -------------------------------------------------------------------
                 ## RUN TRAINING TASK
                 ## -------------------------------------------------------------------                
-                current_step = epoch*i
+                current_step = i
                 input_segments, \
                 output_segments, \
                 padding_mask = preprocessing_fn(tracks, inputs_key, outputs_key)
-                
+                #print('------------- INPUT SEGMENTS -------------')
+                #print(input_segments)
+                #print('------------- OUTPUT SEGMENTS -------------')
+                #print(output_segments)
+                #print('------------- PADDING MASK -------------')
+                #print(padding_mask)
                 loss_value, outputs = self.train_step(
                     train_fn, loss_fn, input_segments, output_segments,
                     self.positional_encoding, padding_mask, current_step
                 )
                 ## -------------------------------------------------------------------
-                tf.summary.scalar('Cross Entropy Loss', loss_value, step=current_step)
                 if i % 1000 == 0:
                     print('Lets listen to what to the model sounds like step ' + str(current_step) + '!')
                     reconstruct_and_play_audio(input_segments)
@@ -153,7 +160,10 @@ class MIDITransformer(tf.keras.Model):
                     reconstruct_and_play_audio(outputs)
                 if i % 100 == 0:
                     print('Loss (' + str(i) + ') - ' + str(loss_value))
-                    print(outputs)
+                    print('Predicted by model:')
+                    print(tf.math.argmax(outputs, axis=-1))
+                    print('Real Music:')
+                    print(tf.concat(input_segments, axis=-1))
                     self.save_model_checkpoint()
                 if self.create_encoder:                       
                     self.enc_ckpt.step.assign_add(1)
@@ -177,28 +187,36 @@ class MIDITransformer(tf.keras.Model):
         memory_length = tf.constant(self.memory_length)
         ## -----------l--------------------------------------------------------
         num_segments = 0
-        loss_value = []
+        loss_values = []
+        all_outputs = []
         ## -----------l--------------------------------------------------------
-        with tf.GradientTape() as tape:
-            for x, y in zip(inputs, targets):
-            ## -------------------------------------------------------------------
-                outputs = model_fn(x, y, positional_encoding, padding_mask, step=current_step)
-                final_output = self.output_dropout(
-                    self.output_layer(outputs),
-                    training=True
-                )
-                final_softmax = tf.nn.softmax(final_output)
-                loss_value.append(loss_fn(y, final_softmax))
-                num_segments += 1
+        for x, y, z in zip(inputs, targets, padding_mask):
+        ## -------------------------------------------------------------------
+            with tf.GradientTape() as tape:
+                if tf.equal(tf.reduce_sum(x), 0):
+                    print('ALL INPUTS ARE PADDED, SO WE WILL SKIP THIS ONE!!')
+                else:
+                    outputs = model_fn(x, y, positional_encoding, z, step=current_step)
+                    output_mask = tf.tile(tf.expand_dims(tf.ones(tf.shape(z)) - z, axis=-1), [1,1,self.vocab_size])
+                    final_softmax = self.output_layer(outputs) * output_mask
+                    loss = loss_fn(y, final_softmax, z)
+            
+            num_segments += 1
+            loss_values.append(loss)
+            all_outputs.append(final_softmax)
             ## -----------l--------------------------------------------------------
-            total_loss = tf.reduce_mean(loss_value)
             trainable_variables = self.collect_trainable_variables()
-            gradients = tape.gradient(total_loss, trainable_variables)
+            grads_and_vars = zip(tape.gradient(loss, trainable_variables), trainable_variables)
+            grads_and_vars = [(tf.clip_by_value(grad, -5., 5.), var) for grad, var in grads_and_vars]
+            self.optimizer.apply_gradients(grads_and_vars)
+            ## -------------------------------------------------------------------
+            tf.summary.scalar('Cross Entropy Loss', loss, step=current_step)
         ## -------------------------------------------------------------------
-        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
+        total_loss = tf.reduce_mean(loss_values)
+        return total_loss, tf.concat(all_outputs, axis=1)
         ## -------------------------------------------------------------------
-        return total_loss, outputs
-        ## -------------------------------------------------------------------
+
+        
     ## -------------------------------------------------------------------
     def collect_trainable_variables(self):
         variables = [self.trainable_variables]
@@ -241,8 +259,11 @@ class MIDITransformer(tf.keras.Model):
         tf.summary.trace_export(name='MIDI Transformer', step=step)
         return decoder_output
     ## -------------------------------------------------------------------
-    def music_generation_loss(self, targets, outputs):
-        return self.cross_entropy(targets, outputs)
+    def music_generation_loss(self, targets, outputs, mask):
+        loss = self.cross_entropy(targets, outputs)
+        mask = tf.ones(tf.shape(mask)) - mask
+        loss *= mask
+        return tf.reduce_sum(loss)/tf.reduce_sum(mask)
     ## -------------------------------------------------------------------
 
 

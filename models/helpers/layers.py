@@ -32,7 +32,7 @@ class Memory(tf.keras.layers.Layer):
         - [Transformer-XL](https://arxiv.org/pdf/1901.02860.pdf)
     """
 
-    def __init__(self, memory_len, target_len, output_dim, batch_size=2, **kwargs):
+    def __init__(self, memory_len, target_len, output_dim, batch_size=16, **kwargs):
         super(Memory, self).__init__(**kwargs)
         self.supports_masking = True
         self.stateful = True
@@ -240,8 +240,11 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
 
     def _reshape_mask(self, mask):
         seq_len = K.shape(mask)[1]
-        mask = K.expand_dims(mask, axis=1)
+        #mask = tf.tile(tf.expand_dims(mask, axis=1), [1, seq_len-256, 1])
+        mask = tf.expand_dims(mask,axis=1)
         mask = K.tile(mask, [1, self.num_head, 1])
+        #print(mask)
+        #lslk
         return K.reshape(mask, (-1, seq_len))
 
     @staticmethod
@@ -295,12 +298,17 @@ class RelativePartialMultiHeadSelfAttention(tf.keras.layers.Layer):
             exp *= K.expand_dims(K.cast(indices <= upper, K.floatx()), axis=0)
 
         if padding_mask is not None and padding_mask[0] is not None:  
-            padding_mask = tf.squeeze(padding_mask)
-            padding_mask = K.cast(padding_mask[0], K.floatx())
+            #padding_mask = tf.squeeze(padding_mask)
+            padding_mask = K.cast(padding_mask, K.floatx())
+            # (batch_size, seq_len)
+            padding_mask = tf.ones(tf.shape(padding_mask)) - padding_mask
+            # (batch_size, seq_len + memory_len)
             padding_mask = K.concatenate([K.ones_like(memories[:, :, 0]), padding_mask], axis=1)
-            exp *= K.expand_dims(self._reshape_mask(padding_mask), axis=1)
-
+            padding_mask = self._reshape_mask(padding_mask)
+            exp *= K.expand_dims(padding_mask, axis=1)
+        
         att = exp / K.sum(exp, axis=-1, keepdims=True)
+
         if self.att_drop_layer is not None:
             att = self.att_drop_layer(att, training=training)
         w_v = self._reshape_to_batches(w_v)                   # (batch * n_head, prev_len + seq_len, units_head)
