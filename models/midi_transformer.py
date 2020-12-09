@@ -161,7 +161,10 @@ class MIDITransformer(tf.keras.Model):
                     print('Lets see to what to the model sounds like step ' + str(current_step) + '!')
                     #reconstruct_and_play_audio(input_segments)
                     reconstruct_and_play_audio(output_segments, event_processor, name='TARGETS', program=piano)
-                    reconstruct_and_play_audio(output_argmax, event_processor, name='OUTPUTS', program=piano)
+                    try:
+                        reconstruct_and_play_audio(output_argmax, event_processor, name='OUTPUTS', program=piano)
+                    except:
+                        print('OUTPUTS seem to not be well formed. Lets skip and proceed ..')
                 if i % 100 == 0:
                     print('Loss (' + str(i) + ') - ' + str(loss_value))
                     #print('Predicted by model:')

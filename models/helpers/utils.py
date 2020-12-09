@@ -112,6 +112,7 @@ def plot_piano_roll(pm, start_pitch, end_pitch, fs=100):
     ld.specshow(
         piano_roll[start_pitch:end_pitch],
         hop_length=1,
+        sr=fs,
         x_axis='time',
         y_axis='cqt_note',
         fmin=pretty_midi.note_number_to_hz(start_pitch),
