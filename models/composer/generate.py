@@ -96,12 +96,13 @@ class Generator(tf.keras.Model):
             for sequence in dataset:
                 segments = self.create_segments(sequence)
                 self.model.reset_states()
-
+                losses = []
                 for segment in segments:
                     segment = tf.squeeze(segment)
                     loss_val, outputs = self.run_step(segment)
-                    print('Loss: ' + str(loss_val.numpy()))
-                
+                    losses.append(loss_val)
+                loss_val = tf.reduce_mean(losses).numpy()
+                print('Loss: ' + str(loss_val))
                 self.ckpt.step.assign_add(1)
                 curr_step = tf.cast(self.ckpt.step, tf.int64)
                 self.update_tensorboard(loss_val, curr_step)
