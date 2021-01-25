@@ -2,15 +2,24 @@ import tensorflow as tf
 import numpy as np
 import os
 from datetime import datetime
+from .helpers.utils import create_RNN_cells, create_RNN_layer, create_segments
 
-class Generator(tf.keras.Model):
+
+class RNNGenerator(tf.keras.Model):
 
     def __init__(self, configs):
-        super(Generator, self).__init__()
+        super(RNNGenerator, self).__init__()
         self.model = self.create_model(configs)
         self.model_path = configs['model_path']
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-        self.optimizer = tf.keras.optimizers.Adam()
+        initial_learning_rate = 0.001
+        end_learning_rate = 0.00001
+        decay_steps = 100000.0
+        decay_rate = 0.
+        learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
+          initial_learning_rate, decay_steps, end_learning_rate, power=3
+        )
+        self.optimizer = tf.keras.optimizers.Adam(0.0001)
         self.tensorboard_logdir = os.path.join(
             self.model_path,
             'tensorboard',
@@ -36,11 +45,9 @@ class Generator(tf.keras.Model):
         else:
             print("Initializing from scratch.")
 
-
     def save_model_checkpoint(self):
         save_path = self.ckpt_manager.save()
         print("Saved checkpoint for step {}: {}".format(int(self.ckpt.step), save_path))
-
 
     def update_tensorboard(self, loss, step, grads=None):
         with self.file_writer.as_default():
@@ -49,18 +56,21 @@ class Generator(tf.keras.Model):
 
 
     def create_model(self, configs):
-        tune = tf.keras.Input(batch_input_shape = (8, configs['max_timesteps']))
+        tune = tf.keras.Input(batch_input_shape = (16, configs['max_timesteps']))
         emb = tf.keras.layers.Embedding(
             input_dim = configs['vocab_size'],
-            output_dim = configs['emb_size']
+            output_dim = configs['emb_size'],
+            mask_zero = True
         )(tune)
 
-        lstm_output_1 = tf.keras.layers.LSTM(configs['lstm_units'], return_sequences=True, stateful=True)(emb)
-        lstm_output_2 = tf.keras.layers.LSTM(configs['lstm_units'], return_sequences=True, stateful=True)(lstm_output_1)
-        #lstm_output_3 = tf.keras.layers.LSTM(configs['lstm_units'], return_sequences=True, stateful=True)(lstm_output_2)
+        stacked_cells = tf.keras.layers.StackedRNNCells(
+            create_RNN_cells(configs['rnn'])
+        )
 
-        dense = tf.keras.layers.Dense(configs['dense_units'], activation='sigmoid')(lstm_output_2)
-        output = tf.keras.layers.Dense(configs['vocab_size'], activation='softmax')(dense)
+        self.sequential_RNN = create_RNN_layer(stacked_cells, stateful = True)
+        rnn_output = self.sequential_RNN(emb)
+
+        output = tf.keras.layers.Dense(configs['vocab_size'], activation='softmax')(rnn_output)
         model = tf.keras.Model(
             inputs=tune,
             outputs=output
@@ -69,48 +79,78 @@ class Generator(tf.keras.Model):
         return model
 
 
+    def loss_function(self, outputs,  targets, weighted = False):
+        mask = tf.math.logical_not(tf.math.equal(outputs, 0))
+        loss_ = self.loss_fn(
+            y_pred = outputs, 
+            y_true = targets
+        )
+        mask = tf.cast(mask, dtype=loss_.dtype)
+        loss_ *= mask
+        return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
+
+
     def run_step(self, sequence):
         inputs = sequence[:, :-1]
         targets = sequence[:, 1:]
+
         with tf.GradientTape() as tape:
             outputs = self.model(inputs)
-            loss = self.loss_fn(targets, outputs)
-        
+            loss = self.loss_function(outputs, targets)
+
         gradients = tape.gradient(loss, self.model.trainable_variables)
+        gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
+
         self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
         
         return loss, outputs
 
 
-    def create_segments(self, sequence, seg_len=128):
-        seq_shape = tf.shape(sequence)
-        print(seq_shape)
-        num_splits = int(seq_shape[2] / seg_len)
-        segments = tf.split(sequence[:, :, :seg_len*num_splits], num_or_size_splits=num_splits, axis=-1)
-        #print(segments)
-        return segments
-
-
     def train(self, dataset, configs):
         for epoch in range(configs['num_epochs']):
-            for sequence in dataset:
-                segments = self.create_segments(sequence)
-                self.model.reset_states()
+            for i, sequence in enumerate(dataset):
+
                 losses = []
+                curr_step = int(self.ckpt.step)
+                self.model.reset_states()
+
+                segments = create_segments(sequence)
+                
                 for segment in segments:
                     segment = tf.squeeze(segment)
                     loss_val, outputs = self.run_step(segment)
                     losses.append(loss_val)
+                    print(loss_val)    
+                    if curr_step % configs['print_every'] == 0: 
+                        print(tf.argmax(outputs, axis=-1)[0])
+                        print(segment[0])
+                
+                self.ckpt.step.assign_add(1)
+                
                 loss_val = tf.reduce_mean(losses).numpy()
                 print('Loss: ' + str(loss_val))
-                self.ckpt.step.assign_add(1)
-                curr_step = tf.cast(self.ckpt.step, tf.int64)
-                self.update_tensorboard(loss_val, curr_step)
                 
-                if curr_step % 100:
+                if curr_step % configs['save_every'] == 0:
+                    self.update_tensorboard(loss_val, curr_step)
+                
+                if curr_step % 100 == 0:
                     self.save_model_checkpoint()
 
 
     def call(self, inputs):
         #print(inputs)
         return self.model(inputs)
+
+    def predict(self, inputs):
+        pass
+
+class TransformerGenerator(tf.keras.Model):
+
+    def __init__(self, configs):
+        
+        super(TransformerGenerator, self).__init__()
+        self.model = self.create_model(configs)
+
+
+    def create_model(self, configs):
+        pass

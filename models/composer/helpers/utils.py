@@ -145,3 +145,28 @@ def reconstruct_and_play_audio(seq, processor, name='Untitled', program=1):
     #full_midi_ns = note_seq.midi_io.midi_file_to_note_sequence(filename)
     #note_seq.plot_sequence(full_midi_ns)
 ## -------------------------------------------------------------------
+
+def create_RNN_cells(configs):
+    if configs['unit_type'] == 'lstm':
+        RNN_unit = tf.keras.layers.LSTMCell
+    else:
+        RNN_unit = tf.keras.layers.GRUCell
+    return [RNN_unit(int(configs['num_units'])) for _ in range(int(configs['num_layers']))]
+
+
+def create_RNN_layer(cells, stateful = False, go_backwards = False):
+    return tf.keras.layers.RNN(
+        cells,
+        stateful = stateful,
+        go_backwards = go_backwards,
+        return_sequences = True,
+        zero_output_for_mask = True,
+    )
+
+def create_segments(sequence, seg_len=128):
+    seq_shape = tf.shape(sequence)
+    print(seq_shape)
+    num_splits = int(seq_shape[2] / seg_len)
+    segments = tf.split(sequence[:, :, :seg_len*num_splits], num_or_size_splits=num_splits, axis=-1)
+    #print(segments)
+    return segments
