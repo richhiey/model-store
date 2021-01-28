@@ -7,16 +7,16 @@ from .helpers.utils import create_RNN_cells, create_RNN_layer, create_segments
 
 class RNNGenerator(tf.keras.Model):
 
-    def __init__(self, configs):
+    def __init__(self, configs, training=True):
         super(RNNGenerator, self).__init__()
-        self.model = self.create_model(configs)
+        self.model = self.create_model(configs, training)
         self.model_path = configs['model_path']
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         initial_learning_rate = 0.001
         end_learning_rate = 0.0000001
         decay_steps = 1000000.0
         decay_rate = 0.
-        learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
+        initial_learning_ratee_fn = tf.optimizers.schedules.PolynomialDecay(
           initial_learning_rate, decay_steps, end_learning_rate, power=3
         )
         self.optimizer = tf.keras.optimizers.Adam(0.0001)
@@ -55,8 +55,18 @@ class RNNGenerator(tf.keras.Model):
         self.file_writer.flush()
 
 
-    def create_model(self, configs):
-        tune = tf.keras.Input(batch_input_shape = (64, configs['max_timesteps']))
+    def create_model(self, configs, training):
+        if training:
+            tune = tf.keras.Input(
+                batch_input_shape = (
+                    configs['batch_size'], configs['max_timesteps']
+                )
+            )
+        else:
+            tune = tf.keras.Input(
+                batch_input_shape = (1, configs['max_timesteps'])
+            )
+
         emb = tf.keras.layers.Embedding(
             input_dim = configs['vocab_size'],
             output_dim = configs['emb_size'],
@@ -141,8 +151,31 @@ class RNNGenerator(tf.keras.Model):
         #print(inputs)
         return self.model(inputs)
 
-    def predict(self, inputs):
-        pass
+    def predict(self, seed, num_steps, temperature=1.0):
+        i = 0
+        print(seed)
+        print('Num of Generated Steps: ' + str(num_steps))
+        generated_midi = seed.numpy()[0]
+
+        while (i < num_steps):
+            i += 1
+            predictions = self.model(seed)
+            #print(seed)
+            #print(predictions)
+            # Remove batch dimension
+            predictions = tf.squeeze(predictions, 0)
+            predictions = predictions / temperature
+            predicted_ids = tf.random.categorical(predictions, 1)
+            #print(predicted_ids)
+            last_pred = predicted_ids[-1].numpy()[0]
+            #print(last_pred)
+            if last_pred:
+                seed = tf.expand_dims([last_pred], 0)
+                generated_midi = np.append(generated_midi, last_pred)
+
+        print(generated_midi)
+        return generated_midi
+
 
 class TransformerGenerator(tf.keras.Model):
 
