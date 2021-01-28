@@ -1,5 +1,7 @@
 import tensorflow as tf
-from .utils import positional_encoding, point_wise_feed_forward_network
+from .utils import positional_encoding, \
+                    point_wise_feed_forward_network, \
+                    scaled_dot_product_attention
 
 class MultiHeadAttention(tf.keras.layers.Layer):
 

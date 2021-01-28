@@ -2,7 +2,10 @@ import os
 import tensorflow as tf
 
 from .helpers.layers import TransformerEncoderStack, TransformerDecoderStack
-from .helpers.utils import Transformer_LR_Schedule, create_segments
+from .helpers.utils import Transformer_LR_Schedule, \
+                            create_segments, \
+                            create_padding_mask, \
+                            create_look_ahead_mask
 
 
 class TransformerTranslator(tf.keras.Model):
@@ -42,8 +45,8 @@ class TransformerTranslator(tf.keras.Model):
             print("Initializing from scratch.")
 
 
-    def __call_model__(self, inp, tar, training, enc_padding_mask, 
-                    look_ahead_mask, dec_padding_mask):
+    def __call_model__(self, inp, tar, enc_padding_mask, 
+                    look_ahead_mask, dec_padding_mask, training):
         # (batch_size, inp_seq_len, d_model)
         enc_output = self.encoder(inp, training, enc_padding_mask)
 
@@ -64,8 +67,8 @@ class TransformerTranslator(tf.keras.Model):
 
 
     def loss_function(self, targets, predictions):
-        mask = tf.math.logical_not(tf.math.equal(real, 0))
-        loss_ = self.loss_fn(real, pred)
+        mask = tf.math.logical_not(tf.math.equal(targets, 0))
+        loss_ = self.loss_fn(targets, predictions)
 
         mask = tf.cast(mask, dtype=loss_.dtype)
         loss_ *= mask
@@ -74,37 +77,40 @@ class TransformerTranslator(tf.keras.Model):
 
 
 
-    def train_step(self, segment):
-        inputs = sequence[:, :-1]
-        targets = sequence[:, 1:]
+    def train_step(self, inputs, targets):
+        inputs = tf.squeeze(inputs)
+        targets = tf.squeeze(targets)
+        enc_padding_mask = create_padding_mask(inputs) 
+        dec_padding_mask = create_padding_mask(targets) 
+        look_ahead_mask = create_look_ahead_mask(tf.shape(inputs)[-1]) 
 
         with tf.GradientTape() as tape:
-            outputs = self.__call_model__(
+            outputs, _ = self.__call_model__(
                 inputs, targets,
                 enc_padding_mask, dec_padding_mask,
-                look_ahead_mask,
+                look_ahead_mask, True
             )
-            loss = self.loss_function(outputs, targets)
+            loss = self.loss_function(targets, outputs)
 
-        gradients = tape.gradient(loss, self.model.trainable_variables)
+        gradients = tape.gradient(loss, self.trainable_variables)
         #gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
 
-        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         
         return loss, outputs
 
     def train(self, dataset, configs):
         for epoch in range(configs['num_epochs']):
-            for i, sequence in enumerate(dataset):
+            for i, (input_seqs, targets_seqs) in enumerate(dataset):
 
                 losses = []
                 curr_step = int(self.ckpt.step)
 
-                segments = create_segments(sequence)
+                input_segments = create_segments(input_seqs)
+                target_segments = create_segments(targets_seqs)
                 
-                for segment in segments:
-                    segment = tf.squeeze(segment)
-                    loss_val, outputs = self.train_step(segment)
+                for inputs, targets in zip(input_segments, target_segments):
+                    loss_val, outputs = self.train_step(inputs, targets)
                     losses.append(loss_val)
                     print(loss_val)    
                     if curr_step % configs['print_every'] == 0: 

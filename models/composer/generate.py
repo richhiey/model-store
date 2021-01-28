@@ -80,14 +80,14 @@ class RNNGenerator(tf.keras.Model):
 
 
     def loss_function(self, outputs,  targets, weighted = False):
-        mask = tf.math.logical_not(tf.math.equal(outputs, 0))
+        #mask = tf.math.logical_not(tf.math.equal(outputs, 0))
         loss_ = self.loss_fn(
             y_pred = outputs, 
             y_true = targets
         )
-        mask = tf.cast(mask, dtype=loss_.dtype)
-        loss_ *= mask
-        return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
+        #mask = tf.cast(mask, dtype=loss_.dtype)
+        #loss_ *= mask
+        return loss_
 
 
     def run_step(self, sequence):

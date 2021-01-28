@@ -45,7 +45,7 @@ def load_POP909_dataset_translator(dataset_path, key1, key2, batch_size):
     
     output_shapes = (tf.TensorShape([1, None]), tf.TensorShape([1, None]))
     output_types = (tf.int64, tf.int64)
-    dataset = create_dataset(generator_fn, output_shapes, output_types, batch_size)
+    dataset = create_dataset(generator_fn, output_types, output_shapes, batch_size)
     return dataset
 
 
