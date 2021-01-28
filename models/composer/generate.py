@@ -13,8 +13,8 @@ class RNNGenerator(tf.keras.Model):
         self.model_path = configs['model_path']
         self.loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         initial_learning_rate = 0.001
-        end_learning_rate = 0.00001
-        decay_steps = 100000.0
+        end_learning_rate = 0.0000001
+        decay_steps = 1000000.0
         decay_rate = 0.
         learning_rate_fn = tf.optimizers.schedules.PolynomialDecay(
           initial_learning_rate, decay_steps, end_learning_rate, power=3
@@ -56,7 +56,7 @@ class RNNGenerator(tf.keras.Model):
 
 
     def create_model(self, configs):
-        tune = tf.keras.Input(batch_input_shape = (16, configs['max_timesteps']))
+        tune = tf.keras.Input(batch_input_shape = (64, configs['max_timesteps']))
         emb = tf.keras.layers.Embedding(
             input_dim = configs['vocab_size'],
             output_dim = configs['emb_size'],
@@ -69,8 +69,9 @@ class RNNGenerator(tf.keras.Model):
 
         self.sequential_RNN = create_RNN_layer(stacked_cells, stateful = True)
         rnn_output = self.sequential_RNN(emb)
-
-        output = tf.keras.layers.Dense(configs['vocab_size'], activation='softmax')(rnn_output)
+        rnn_dropout = tf.keras.layers.Dropout(0.2)(rnn_output)
+        relu = tf.keras.layers.LeakyReLU()(rnn_dropout)
+        output = tf.keras.layers.Dense(configs['vocab_size'], activation='sigmoid')(relu)
         model = tf.keras.Model(
             inputs=tune,
             outputs=output
@@ -129,11 +130,10 @@ class RNNGenerator(tf.keras.Model):
                 
                 loss_val = tf.reduce_mean(losses).numpy()
                 print('Loss: ' + str(loss_val))
+
+                self.update_tensorboard(loss_val, curr_step)
                 
                 if curr_step % configs['save_every'] == 0:
-                    self.update_tensorboard(loss_val, curr_step)
-                
-                if curr_step % 100 == 0:
                     self.save_model_checkpoint()
 
 
